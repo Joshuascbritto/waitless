@@ -1,4 +1,4 @@
-# Fila — Roadmap
+# Waitless — Roadmap
 
 Work one phase at a time. A box is ticked only when the code is merged and its tests pass.
 Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Commands" updated, ADRs written, commit(s).
@@ -6,21 +6,23 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 ---
 
 ## Phase 0 — Foundation
-- [ ] pnpm workspace + Turborepo: `apps/web`, `apps/api`, `packages/db`, `packages/shared`
-- [ ] TypeScript strict base config shared by all packages
-- [ ] Biome config; `pnpm lint`, `pnpm typecheck` at root
+- [x] SPEC review fixes (memberships RLS, role bootstrap, cross-tenant jobs, `removed` status, ordering tie-break, notification dedupe, join rate limits)
+- [x] pnpm workspace + Turborepo: `apps/web`, `apps/api`, `packages/db`, `packages/shared`
+- [x] TypeScript strict base config shared by all packages
+- [x] Biome config; `pnpm lint`, `pnpm typecheck` at root
 - [ ] `docker-compose.yml`: postgres, redis, mailpit (with healthchecks)
-- [ ] `.env.example` with every variable documented
+- [x] `.env.example` with every variable documented
 - [ ] Fastify app skeleton: pino logging, requestId, helmet, problem+json error handler, `/api/health/live` and `/api/health/ready`
-- [ ] Next.js app skeleton with Tailwind; dev rewrite `/api/*` → API
+- [x] Next.js app skeleton with Tailwind; dev rewrite `/api/*` → API
 - [ ] Vitest set up in every package; one trivial passing test each
 - [ ] GitHub Actions `ci.yml`: install, lint, typecheck, test
-- [ ] README stub (title, one-liner, "work in progress")
+- [x] README stub (title, one-liner, "work in progress")
 
 ## Phase 1 — Data model, tenancy and auth
 - [ ] Drizzle schema for all tables in SPEC §5; first migration
-- [ ] SQL migration: roles `fila_owner` / `fila_app`, `ENABLE` + `FORCE ROW LEVEL SECURITY`, policies on every tenant-scoped table
-- [ ] `withTenant(tenantId, fn)` with `set_config(..., true)` and `afterCommit` hooks
+- [ ] Superuser bootstrap script creating roles `waitless_owner` / `waitless_app` (compose `initdb.d`), outside the migrations
+- [ ] SQL migration: `ENABLE` + `FORCE ROW LEVEL SECURITY`, policies on every tenant-scoped table, dual-key policy on `memberships`
+- [ ] `withTenant(tenantId, fn)` with `set_config(..., true)` and `afterCommit` hooks; `withUser(userId, fn)` for membership reads
 - [ ] **Test: RLS isolation** (SPEC §12.2)
 - [ ] Register / login / logout / me; argon2id; hashed session ids; cookie settings; Origin check
 - [ ] Rate limiting on login (Redis store)

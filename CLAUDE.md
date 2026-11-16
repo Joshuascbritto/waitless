@@ -1,6 +1,6 @@
-# Fila — project guide for Claude Code
+# Waitless — project guide for Claude Code
 
-**Fila** ("queue" in Portuguese) is a multi-tenant virtual queue system for small businesses — barbershops, dental clinics, pet shops, auto repair shops. A customer scans a QR code at the counter, joins a live queue from their phone, sees their position and estimated wait update in real time, and gets a push notification when it's their turn. The owner runs the queue from a dashboard and sees metrics (peak hours, average wait, lost customers).
+**Waitless** is a multi-tenant virtual queue system for small businesses — barbershops, dental clinics, pet shops, auto repair shops. A customer scans a QR code at the counter, joins a live queue from their phone, sees their position and estimated wait update in real time, and gets a push notification when it's their turn. The owner runs the queue from a dashboard and sees metrics (peak hours, average wait, lost customers).
 
 This is a **portfolio project** aimed at remote, international engineering roles. Every technical decision must be explainable in an interview. **Quality and clarity beat feature count.**
 
@@ -16,12 +16,15 @@ If the spec and the code disagree, stop and ask. Don't silently diverge. If you 
 
 | Layer | Choice |
 |---|---|
+| Runtime | Node.js 24 LTS (pinned in `.nvmrc` and `engines`) |
 | Monorepo | pnpm workspaces (+ Turborepo for task running) |
 | Frontend | Next.js (App Router) + TypeScript + Tailwind CSS |
 | API | Fastify + TypeScript |
 | Validation | zod (schemas shared between web and api) |
-| Database | PostgreSQL 16+ with Row-Level Security |
+| Database | PostgreSQL 18 with Row-Level Security (native `uuidv7()`) |
+| DB driver | `pg` (node-postgres) |
 | ORM / migrations | Drizzle ORM + drizzle-kit; RLS policies in hand-written SQL migrations |
+| Redis client | `ioredis` (shared by pub/sub, rate limiting and BullMQ) |
 | Real-time | Server-Sent Events (SSE) + Redis pub/sub for fan-out across API replicas |
 | Background jobs | BullMQ (on Redis): notifications, auto no-show |
 | Notifications | Web Push (VAPID, `web-push` lib) + email (Resend in prod, Mailpit locally) |
@@ -36,7 +39,7 @@ Use the latest stable versions. Check each library's current docs before writing
 ## Repo layout
 
 ```
-fila/
+waitless/
 ├── apps/
 │   ├── web/          # Next.js: customer pages (/q/...) + admin dashboard (/admin/...)
 │   └── api/          # Fastify: REST + SSE + BullMQ workers (separate entrypoint)
@@ -60,15 +63,23 @@ fila/
 > Keep this section accurate. Update it whenever a script is added or changed.
 
 ```bash
-docker compose up -d        # Postgres, Redis, Mailpit
+cp .env.example .env        # once; the API dev script loads it
+docker compose up -d        # Postgres, Redis, Mailpit (wait for "healthy": docker compose ps)
 pnpm install
-pnpm db:migrate             # run migrations
-pnpm db:seed                # demo tenant + 30 days of history
-pnpm dev                    # web + api + worker in watch mode
-pnpm test                   # unit + integration (needs Docker for Testcontainers)
-pnpm test:e2e               # Playwright
-pnpm lint && pnpm typecheck
+pnpm dev                    # web :3000 + api :3001 in watch mode (packages rebuild on change)
+pnpm test                   # Vitest in every package (via Turborepo)
+pnpm lint                   # Biome: lint + format check (Markdown excluded)
+pnpm format                 # Biome: apply formatting and safe fixes
+pnpm typecheck              # tsc --noEmit everywhere (web runs `next typegen` first)
+pnpm build                  # packages → dist/, api → dist/, web → .next/
+
+# Not yet available (planned):
+pnpm db:migrate             # Phase 1: run migrations
+pnpm db:seed                # Phase 5: demo tenants + 30 days of history
+pnpm test:e2e               # Phase 7: Playwright
 ```
+
+Package layout notes: `packages/*` compile to `dist/` with `tsc` and are consumed as built JS (Turborepo builds them first). The API runs its `.ts` sources directly on Node 24 in dev (native type stripping), so relative imports use the `.ts` extension; `tsc` rewrites them to `.js` on build.
 
 ## Conventions
 
@@ -80,7 +91,7 @@ pnpm lint && pnpm typecheck
 - Timestamps are `timestamptz` stored in UTC. Convert to the tenant's timezone only for display and for aggregation (daily numbering, metrics).
 - Errors: typed domain errors, mapped to `application/problem+json` in one Fastify error handler.
 - Logging: pino structured logs. Include `tenantId`, `queueId`, `requestId`. Never log tokens or contact info.
-- Commits: Conventional Commits (`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `refactor:`). Small, one concern each.
+- Commits: Conventional Commits (`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `refactor:`). Small, one concern each. **No `Co-Authored-By` trailers and no AI attribution lines in commits or PR descriptions, ever.**
 - Tests ship with the feature, not later. The concurrency and RLS tests in SPEC §12 are mandatory.
 - No secrets in the repo. Every variable is listed in `.env.example` with a comment.
 
