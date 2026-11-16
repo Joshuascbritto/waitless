@@ -112,6 +112,8 @@ services:
     environment:
       # Server components call the API through Caddy, like the browser does.
       API_ORIGIN: http://caddy:8080
+      # Public origin printed on QR posters.
+      APP_ORIGIN: http://localhost:8080
     depends_on:
       - api-1
       - api-2

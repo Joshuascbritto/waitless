@@ -97,6 +97,12 @@ export function QueueBoard({ tenantSlug, queueId, isOwner }: Props) {
           <StreamBadge status={status} />
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            href={`/admin/${tenantSlug}/queues/${queueId}/poster`}
+            className="text-sm underline"
+          >
+            QR poster
+          </Link>
           {isOwner ? (
             <Link
               href={`/admin/${tenantSlug}/queues/${queueId}/settings`}

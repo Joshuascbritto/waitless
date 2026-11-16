@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+/* QR poster (admin/.../poster): one A4 page, edge to edge, no admin chrome. */
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+  .poster {
+    width: 210mm;
+    max-width: none;
+    height: 297mm;
+    print-color-adjust: exact;
+  }
+}
