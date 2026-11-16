@@ -23,8 +23,9 @@ describe("SseConnection", () => {
     app = Fastify();
     app.addHook("preClose", async () => registry.closeAll());
     app.get("/stream", async (request, reply) => {
+      const slot = registry.reserve(request.ip);
       const stream = new SseConnection(request, reply, heartbeatMs);
-      registry.add(stream);
+      if (slot) registry.add(stream, slot);
       stream.send("hello", { ok: true });
       return reply;
     });
@@ -68,5 +69,30 @@ describe("SseConnection", () => {
     const closing = app?.close();
     app = undefined;
     await expect(closing).resolves.toBeUndefined();
+  });
+});
+
+describe("SseRegistry.reserve", () => {
+  it("enforces the per-IP cap synchronously, before any await", () => {
+    const registry = new SseRegistry();
+
+    // Three "concurrent" requests reserving back to back, as they would before awaiting lookups.
+    const slots = [1, 2, 3].map(() => registry.reserve("10.0.0.1", 2));
+
+    expect(slots.filter(Boolean)).toHaveLength(2);
+    expect(slots[2]).toBeUndefined();
+    expect(registry.reserve("10.0.0.2", 2)).toBeDefined();
+  });
+
+  it("frees the slot on release, exactly once", () => {
+    const registry = new SseRegistry();
+    const slot = registry.reserve("10.0.0.1", 1);
+
+    slot?.release();
+    slot?.release();
+
+    expect(registry.connectionsFrom("10.0.0.1")).toBe(0);
+    expect(registry.reserve("10.0.0.1", 1)).toBeDefined();
+    expect(registry.reserve("10.0.0.1", 1)).toBeUndefined();
   });
 });

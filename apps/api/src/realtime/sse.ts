@@ -47,6 +47,11 @@ export class SseConnection {
     // and lets the server notice dead clients.
     this.#heartbeat = setInterval(() => this.#write(": ping\n\n"), heartbeatMs);
     request.raw.on("close", () => this.close());
+    // The client may have left while the handler was still awaiting lookups;
+    // then "close" already fired and would never fire again.
+    if (request.raw.destroyed || reply.raw.destroyed) {
+      queueMicrotask(() => this.close());
+    }
   }
 
   get closed(): boolean {
@@ -75,6 +80,12 @@ export class SseConnection {
   }
 }
 
+/** A held place in the per-IP count. Released exactly once. */
+export interface StreamSlot {
+  readonly ip: string;
+  release(): void;
+}
+
 /** Tracks open streams: connection gauge, per-IP cap, and closing everything on shutdown. */
 export class SseRegistry {
   readonly #connections = new Set<SseConnection>();
@@ -88,14 +99,38 @@ export class SseRegistry {
     return this.#perIp.get(ip) ?? 0;
   }
 
-  add(connection: SseConnection): void {
+  /**
+   * Takes a per-IP slot synchronously, before the handler awaits anything.
+   * Checking first and counting only once the stream opens would let many
+   * concurrent requests all pass the check while their lookups are pending
+   * (time-of-check vs. time-of-use), defeating the cap.
+   * Returns undefined when `ip` already holds `limit` slots.
+   */
+  reserve(ip: string, limit = Number.POSITIVE_INFINITY): StreamSlot | undefined {
+    const held = this.connectionsFrom(ip);
+    if (held >= limit) {
+      return undefined;
+    }
+    this.#perIp.set(ip, held + 1);
+    let released = false;
+    return {
+      ip,
+      release: () => {
+        if (released) return;
+        released = true;
+        const left = this.connectionsFrom(ip) - 1;
+        if (left > 0) this.#perIp.set(ip, left);
+        else this.#perIp.delete(ip);
+      },
+    };
+  }
+
+  /** Registers an open stream; its slot is released when the stream closes. */
+  add(connection: SseConnection, slot: StreamSlot): void {
     this.#connections.add(connection);
-    this.#perIp.set(connection.ip, this.connectionsFrom(connection.ip) + 1);
     connection.onClose(() => {
       this.#connections.delete(connection);
-      const left = this.connectionsFrom(connection.ip) - 1;
-      if (left > 0) this.#perIp.set(connection.ip, left);
-      else this.#perIp.delete(connection.ip);
+      slot.release();
     });
   }
 

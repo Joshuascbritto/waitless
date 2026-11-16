@@ -211,7 +211,9 @@ export const adminRoutes: FastifyPluginAsyncZod<{ db: Db; realtime: Realtime }> 
       );
 
       const stream = new SseConnection(request, reply);
-      realtime.streams.add(stream);
+      // Staff streams aren't capped per IP; the slot only feeds the gauge.
+      const slot = realtime.streams.reserve(request.ip);
+      if (slot) realtime.streams.add(stream, slot);
       try {
         const stop = await realtime.hub.watch(
           { tenantId: tenant.id, timezone: tenant.timezone, queueId: queue.id },

@@ -146,36 +146,48 @@ export const publicRoutes: FastifyPluginAsyncZod<{ db: Db; realtime: Realtime }>
       },
     },
     async (request, reply) => {
-      if (realtime.streams.connectionsFrom(request.ip) >= MAX_PUBLIC_STREAMS_PER_IP) {
+      // Reserve before any await, so concurrent requests can't all slip past the cap.
+      const slot = realtime.streams.reserve(request.ip, MAX_PUBLIC_STREAMS_PER_IP);
+      if (!slot) {
         throw Object.assign(new Error("Too many open streams from this address"), {
           statusCode: 429,
         });
       }
-      const tenant = await findTenantBySlug(db, request.params.tenantSlug);
-      const [ticket] = await db.withTenant(tenant.id, (tx) =>
-        tx
-          .select({ id: tickets.id, queueId: tickets.queueId, displayCode: tickets.displayCode })
-          .from(tickets)
-          .where(eq(tickets.publicToken, request.params.token)),
-      );
-      if (!ticket) {
-        throw new NotFoundError("Ticket not found");
+
+      let ticket: { id: string; queueId: string; displayCode: string } | undefined;
+      let tenant: Awaited<ReturnType<typeof findTenantBySlug>>;
+      try {
+        tenant = await findTenantBySlug(db, request.params.tenantSlug);
+        const tenantId = tenant.id;
+        [ticket] = await db.withTenant(tenantId, (tx) =>
+          tx
+            .select({ id: tickets.id, queueId: tickets.queueId, displayCode: tickets.displayCode })
+            .from(tickets)
+            .where(eq(tickets.publicToken, request.params.token)),
+        );
+        if (!ticket) {
+          throw new NotFoundError("Ticket not found");
+        }
+      } catch (error) {
+        slot.release();
+        throw error;
       }
+      const watched = ticket;
 
       // From here on the response is a stream; errors can only be logged.
       const stream = new SseConnection(request, reply);
-      realtime.streams.add(stream);
+      realtime.streams.add(stream, slot);
       try {
         const stop = await realtime.hub.watch(
-          { tenantId: tenant.id, timezone: tenant.timezone, queueId: ticket.queueId },
+          { tenantId: tenant.id, timezone: tenant.timezone, queueId: watched.queueId },
           {
-            ticketId: ticket.id,
+            ticketId: watched.id,
             render: ({ queue, state, finishedStatuses }) => {
-              const status = statusIn(state, finishedStatuses, ticket.id);
+              const status = statusIn(state, finishedStatuses, watched.id);
               if (!status) return;
               stream.send(
                 "ticket",
-                toCustomerView(tenant.name, queue, state, { ...ticket, status }),
+                toCustomerView(tenant.name, queue, state, { ...watched, status }),
               );
             },
           },
