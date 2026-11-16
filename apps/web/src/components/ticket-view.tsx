@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { apiRequest } from "@/lib/api";
 import { etaText, ticketStorageKey, writeStorage } from "@/lib/format";
 import { useEventStream } from "@/lib/use-event-stream";
+import { NotifyButton } from "./notify-button";
 import { StreamBadge } from "./stream-badge";
 
 const HEADLINE: Record<TicketStatus, string> = {
@@ -95,6 +96,8 @@ export function TicketView({ tenantSlug, token }: { tenantSlug: string; token: s
           Now serving: <span className="font-mono font-medium">{data.nowServing.join(", ")}</span>
         </p>
       ) : null}
+
+      {data.status === "waiting" ? <NotifyButton tenantSlug={tenantSlug} token={token} /> : null}
 
       {active && data.status !== "serving" ? (
         <div className="flex flex-col gap-3">
