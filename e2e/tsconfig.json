@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["dom", "es2024"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["playwright.config.ts", "tests", "scripts"]
+}
