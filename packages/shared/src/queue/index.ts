@@ -1,5 +1,6 @@
 export * from "./display-code.ts";
 export * from "./eta.ts";
+export * from "./notifications.ts";
 export * from "./ordering.ts";
 export * from "./public-view.ts";
 export * from "./schemas.ts";
