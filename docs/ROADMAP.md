@@ -31,17 +31,17 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [x] ADR-0001 (RLS), ADR-0006 (sessions), ADR-0007 (same-origin)
 
 ## Phase 2 — Queue core (no real-time yet)
-- [ ] `packages/shared/queue`: state machine, `canTransition`, sort-key push-back, position, display code, ETA → **all unit-tested**
-- [ ] Atomic daily numbering (SPEC §6.2) + **test: 50 parallel joins**
-- [ ] Public endpoints: queue info, join, view ticket, leave
-- [ ] Admin endpoints: board, call-next (SKIP LOCKED), call specific, start, finish, push-back, no-show, remove, walk-in
-- [ ] Every transition writes a `ticket_events` row
-- [ ] **Test: concurrent call-next** (SPEC §12.1)
-- [ ] Queue settings CRUD
-- [ ] Web customer pages: `/q/[tenant]/[queue]` (join form), `/q/[tenant]/t/[token]` (ticket view, polling every 5 s for now)
-- [ ] Web admin: queue board with all actions, walk-in form, settings page
-- [ ] OpenAPI + Swagger UI at `/api/docs`
-- [ ] ADR-0003 (SKIP LOCKED)
+- [x] `packages/shared/queue`: state machine, `canTransition`, sort-key push-back, position, display code, ETA → **all unit-tested**
+- [x] Atomic daily numbering (SPEC §6.2) + **test: 50 parallel joins**
+- [x] Public endpoints: queue info, join, view ticket, leave
+- [x] Admin endpoints: board, call-next (SKIP LOCKED), call specific, start, finish, push-back, no-show, remove, walk-in
+- [x] Every transition writes a `ticket_events` row
+- [x] **Test: concurrent call-next** (SPEC §12.1)
+- [x] Queue settings CRUD
+- [x] Web customer pages: `/q/[tenant]/[queue]` (join form), `/q/[tenant]/t/[token]` (ticket view, polling every 5 s for now)
+- [x] Web admin: queue board with all actions, walk-in form, settings page
+- [x] OpenAPI + Swagger UI at `/api/docs`
+- [x] ADR-0003 (SKIP LOCKED)
 
 ## Phase 3 — Real-time
 - [ ] SSE plugin: headers, heartbeat, cleanup, connection gauge

@@ -68,6 +68,7 @@ docker compose up -d        # Postgres, Redis, Mailpit (wait for "healthy": dock
 pnpm install
 pnpm db:migrate             # apply migrations as waitless_owner (MIGRATION_DATABASE_URL)
 pnpm dev                    # web :3000 + api :3001 in watch mode (packages rebuild on change)
+                            # API docs (API_DOCS=true): http://localhost:3000/api/docs
 pnpm test                   # Vitest everywhere; db and api integration tests need Docker (Testcontainers)
 pnpm lint                   # Biome: lint + format check (Markdown excluded)
 pnpm format                 # Biome: apply formatting and safe fixes
