@@ -65,10 +65,10 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [x] ADR-0005 (Web Push vs WhatsApp/SMS)
 
 ## Phase 5 — Metrics and QR
-- [ ] Metrics SQL (SPEC §10) with timezone handling + integration tests with fixed fixtures
-- [ ] Metrics page: KPI tiles, peak-hours heatmap, daily throughput chart, range selector
-- [ ] QR poster page (A4, print CSS) per queue
-- [ ] Seed script with 30 days of realistic history + "live" waiting tickets (SPEC §13)
+- [x] Metrics SQL (SPEC §10) with timezone handling + integration tests with fixed fixtures
+- [x] Metrics page: KPI tiles, peak-hours heatmap, daily throughput chart, range selector
+- [x] QR poster page (A4, print CSS) per queue
+- [x] Seed script with 30 days of realistic history + "live" waiting tickets (SPEC §13)
 
 ## Phase 6 — Deploy
 - [x] Multi-stage Dockerfiles (web, api), non-root (done early, in Phase 3, for the compose `full` profile)

@@ -28,7 +28,8 @@ If the spec and the code disagree, stop and ask. Don't silently diverge. If you 
 | Real-time | Server-Sent Events (SSE) + Redis pub/sub for fan-out across API replicas |
 | Background jobs | BullMQ (on Redis): notifications, auto no-show |
 | Notifications | Web Push (VAPID, `web-push` lib) + email (Resend in prod, Mailpit locally) |
-| Charts | Recharts |
+| Charts | Recharts (bar chart); the peak-hours heatmap is a plain CSS grid |
+| QR codes | `qrcode`, server-side only, drawn as an inline SVG path |
 | Tests | Vitest, Testcontainers (real Postgres + Redis), Playwright (e2e) |
 | Lint/format | Biome |
 | Deploy | Docker images → GHCR; Kubernetes manifests (Kustomize) in `deploy/k8s`; docker compose for local dev |
@@ -82,8 +83,10 @@ docker compose --profile full up -d --build
                             # prod-like stack on http://localhost:8080: migrations, web, 2 API replicas, worker, Caddy
 docker compose --profile full rm -sf migrate api-1 api-2 worker web caddy   # stop it, keep the dev services
 
+pnpm db:seed                # demo businesses + 30 days of history (owner@demo.waitless.dev / demo1234)
+pnpm db:seed --reset-demo   # delete the demo tenants and users, then seed again
+
 # Not yet available (planned):
-pnpm db:seed                # Phase 5: demo tenants + 30 days of history
 pnpm test:e2e               # Phase 7: Playwright
 ```
 

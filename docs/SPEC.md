@@ -21,7 +21,7 @@ Small businesses in Brazil (barbershops, clinics, pet shops, repair shops) still
 2. **Queue board**: live list of waiting/called/serving tickets. Actions: *Call next*, *Call specific*, *Start serving*, *Done*, *Push back* (customer called but not here yet: move behind the next N), *No-show*, *Remove*.
 3. **Add walk-in manually** (customer without a phone).
 4. **Queue settings**: name, prefix letter, active servers (chairs/counters), default service minutes, "notify when N ahead", auto no-show minutes, open/closed toggle.
-5. **QR page**: printable A4 poster with the QR code and short instructions.
+5. **QR page**: printable A4 poster with the QR code and short instructions. The link printed is `APP_ORIGIN` on the web server, falling back to the request's host.
 6. **Metrics**: peak-hours heatmap, average wait, average service time, abandonment rate, daily throughput.
 7. **Team**: invite staff by email (owner only).
 
@@ -267,15 +267,15 @@ CREATE POLICY tenant_isolation ON tickets
 
 ## 10. Metrics
 
-Computed from `tickets` (plus `ticket_events` where needed), in the tenant's timezone, for ranges 7 / 30 / 90 days:
+Computed from `tickets` (plus `ticket_events` where needed), in the tenant's timezone, for ranges 7 / 30 / 90 days. A range is today plus the previous N − 1 local days, from local midnight of the first day (converted with that day's UTC offset, so DST is handled) up to now. A ticket belongs to the range, to a day of the throughput chart and to a heatmap cell by the local time it **joined**; days without tickets are zero-filled. Optional `queueId` narrows to one queue (another tenant's id is a 404). The query reads tickets by `(tenant_id, joined_at)`, which has its own index.
 
 | Metric | Definition |
 |---|---|
 | Avg wait | mean(first `called` event `at` − `joined_at`). The first call comes from `ticket_events`, because `tickets.called_at` is overwritten on a re-call |
 | Avg service | mean(`finished_at - serving_at`) for `done` |
 | Abandonment rate | (`cancelled` + `no_show`) / tickets in a final status, excluding `removed` |
-| Throughput | `done` tickets per day |
-| Peak hours | heatmap: count of `joined_at` by weekday × hour (`AT TIME ZONE tz`) |
+| Throughput | `done` tickets per local day (the day they joined) |
+| Peak hours | heatmap: count of `joined_at` by ISO weekday (Monday first) × hour (`AT TIME ZONE tz`) |
 | p90 wait | `percentile_cont(0.9)` of wait |
 
 Plain SQL with proper indexes is enough at this scale. **Don't** add materialized views unless a measured query is slow. If you do, write an ADR with the before/after numbers.
@@ -325,6 +325,8 @@ Generate an OpenAPI document from the zod schemas (`fastify-type-provider-zod` o
 - Users: `owner@demo.waitless.dev` / `demo1234` (owner of both), `staff@demo.waitless.dev` / `demo1234`.
 - **30 days of realistic history**: arrival rates by weekday and hour (busy Friday evenings and Saturday mornings), service times drawn from a normal distribution around the queue default, ~8% cancelled and ~5% no-show. This makes the metrics page look real.
 - A few tickets waiting *right now*, so the board isn't empty.
+- The history is simulated, not random noise: Poisson arrivals per open hour, `active_servers` serving first come first served, so peaks really produce longer waits. A fixed PRNG seed makes it deterministic (unit-tested without a database). Generator and writer: `packages/db/src/seed/`; CLI: `apps/api/src/seed.ts`, because the API owns password hashing and its image is what the CronJob runs (`node dist/seed.js --reset-demo`).
+- The seed connects as `waitless_app` and writes each tenant inside `withTenant`, like the app. It refuses to run twice; `--reset-demo` deletes only the demo tenants (cascading to their data) and the two demo users.
 - Public demo: reset the demo data nightly (k8s CronJob running the seed with `--reset-demo`).
 
 ## 14. Deployment and CI
