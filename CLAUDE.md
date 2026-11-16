@@ -92,9 +92,8 @@ k3d cluster create waitless --image rancher/k3s:v1.37.2-k3s1 --agents 1 -p "8080
 k3d image import waitless-api:local waitless-web:local -c waitless
 deploy/k8s/deploy.sh deploy/k8s/overlays/local   # staged: infra → roles → migrations → app; http://localhost:8080
 k3d cluster delete waitless
-
-# Not yet available (planned):
-pnpm test:e2e               # Phase 7: Playwright
+pnpm test:e2e               # Playwright against the compose `full` stack on :8080 (start it first)
+pnpm --filter @waitless/e2e record-demo   # README GIF + screenshots (needs Chrome, ffmpeg, full stack, fresh seed)
 ```
 
 Package layout notes: `packages/*` compile to `dist/` with `tsc` and are consumed as built JS (Turborepo builds them first). The API runs its `.ts` sources directly on Node 24 in dev (native type stripping), so relative imports use the `.ts` extension; `tsc` rewrites them to `.js` on build.

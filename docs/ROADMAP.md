@@ -80,10 +80,10 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [ ] Public demo URL live with HTTPS
 
 ## Phase 7 — Portfolio polish
-- [ ] Playwright e2e (two contexts) in CI
-- [ ] README complete (SPEC §15), Mermaid diagram, GIF, demo credentials
-- [ ] All ADRs reviewed and linked from the README
-- [ ] Lighthouse pass on customer pages (mobile): fast and accessible
+- [x] Playwright e2e (two contexts) in CI, against the compose `full` stack
+- [x] README complete (SPEC §15), Mermaid diagram, GIF, demo credentials (live link once the VPS exists)
+- [x] All ADRs reviewed and linked from the README
+- [x] Lighthouse pass on customer pages (mobile): performance 97–98, accessibility 100
 - [ ] Repo hygiene: LICENSE (MIT), issue templates, topics/tags on GitHub, pinned on profile
 - [ ] Project card on joshuastrauch.com.br
 
