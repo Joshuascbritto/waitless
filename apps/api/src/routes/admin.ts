@@ -9,6 +9,7 @@ import {
   type Db,
   eq,
   isUniqueViolation,
+  loadMetrics,
   loadQueueState,
   pushBack,
   queues,
@@ -20,6 +21,8 @@ import {
   ConflictError,
   CreateQueueInputSchema,
   ForbiddenError,
+  MetricsQuerySchema,
+  MetricsSchema,
   PushBackInputSchema,
   QueueListResponseSchema,
   QueueSchema,
@@ -172,6 +175,30 @@ export const adminRoutes: FastifyPluginAsyncZod<{
   );
 
   // --- Board and actions -------------------------------------------------------------
+
+  // --- Metrics -------------------------------------------------------------------
+
+  app.get(
+    "/metrics",
+    {
+      schema: {
+        tags,
+        summary: "Wait, service, abandonment, daily throughput and peak hours (tenant timezone)",
+        params: TenantParams,
+        querystring: MetricsQuerySchema,
+        response: { 200: MetricsSchema },
+      },
+    },
+    async (request) => {
+      const { tenant } = context(request);
+      const { range, queueId } = request.query;
+      return db.withTenant(tenant.id, async (tx) => {
+        // A queue id from another tenant is a 404, not silently empty numbers.
+        if (queueId) await findQueue(tx, tenant.id, queueId);
+        return loadMetrics(tx, { range, timezone: tenant.timezone, queueId });
+      });
+    },
+  );
 
   app.get(
     "/queues/:queueId/board",
