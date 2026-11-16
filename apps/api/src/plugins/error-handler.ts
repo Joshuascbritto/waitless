@@ -21,20 +21,34 @@ export function isFastifyHttpError(error: unknown): error is FastifyError & { st
  * Maps any thrown value to an RFC 9457 problem. This is the error contract
  * every client of the API relies on.
  *
- * TODO(you): implement the three cases. Tests in error-handler.test.ts describe the contract.
- *   1. DomainError (from @waitless/shared): use its status, `problemTypeFor(error.code)` as type,
- *      and its message as detail. Domain messages are written to be shown to users.
- *   2. Fastify errors (`isFastifyHttpError`) with a 4xx statusCode: the client sent something
- *      wrong (bad JSON, failed validation). Decide how much of Fastify's message to expose.
- *   3. Anything else, and Fastify errors with 5xx: a bug or an outage. What may the client see?
- *      Remember the message could contain SQL, hostnames or secrets.
- *   Use `type: "about:blank"` for non-domain problems, and `httpTitle(status)` for titles.
+ * 1. DomainError: expected and written for users, so its message is the detail
+ *    and its code becomes a stable, machine-readable `type`.
+ * 2. Fastify 4xx (bad JSON, schema validation, payload too large): the message
+ *    describes the client's own input ("body must have required property 'name'"),
+ *    which helps them fix the request and leaks nothing about the server.
+ * 3. Everything else, including Fastify 5xx: a bug or an outage. The message may
+ *    hold SQL, hostnames or secrets, so the client gets only the status and the
+ *    requestId to quote; the full error goes to the logs.
  */
 export function toProblem(error: unknown): ProblemDetails {
-  void error;
-  void DomainError;
-  void problemTypeFor;
-  // Safe default until the mapping above is written: reveal nothing.
+  if (error instanceof DomainError) {
+    return {
+      type: problemTypeFor(error.code),
+      title: httpTitle(error.status),
+      status: error.status,
+      detail: error.message,
+    };
+  }
+
+  if (isFastifyHttpError(error) && error.statusCode >= 400 && error.statusCode < 500) {
+    return {
+      type: "about:blank",
+      title: httpTitle(error.statusCode),
+      status: error.statusCode,
+      detail: error.message,
+    };
+  }
+
   return { type: "about:blank", title: httpTitle(500), status: 500 };
 }
 
