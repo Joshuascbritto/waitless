@@ -12,4 +12,5 @@ export {
   ProblemDetailsSchema,
   problemTypeFor,
 } from "./problem.ts";
+export * from "./queue/index.ts";
 export * from "./tenant.ts";
