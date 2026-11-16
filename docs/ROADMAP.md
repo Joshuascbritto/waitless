@@ -84,8 +84,9 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [x] README complete (SPEC §15), Mermaid diagram, GIF, demo credentials (live link once the VPS exists)
 - [x] All ADRs reviewed and linked from the README
 - [x] Lighthouse pass on customer pages (mobile): performance 97–98, accessibility 100
-- [ ] Repo hygiene: LICENSE (MIT), issue templates, topics/tags on GitHub, pinned on profile
-- [ ] Project card on joshuastrauch.com.br
+- [x] Repo hygiene: LICENSE (MIT), issue/PR templates, SECURITY.md, topics on GitHub, public after a gitleaks scan of the full history
+- [ ] Pinned on the GitHub profile (manual: no API for pins)
+- [ ] Project card on joshuastrauch.com.br (Landing-Josh PR #10, open)
 
 ## v1.1 (only after Phase 7)
 - [ ] Team invites by email
