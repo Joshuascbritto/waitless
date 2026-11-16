@@ -29,6 +29,6 @@ Option 2.
 ## Consequences
 
 - Easier: sign-out and access removal take effect on the next request; nothing sensitive is reachable from JavaScript.
-- Harder: every authenticated request costs one primary-key lookup (cheap at this scale; cacheable in Redis later if it shows up in profiles). Expired rows accumulate until a cleanup job deletes them (Phase 4 job queue).
+- Harder: every authenticated request costs one primary-key lookup (cheap at this scale; cacheable in Redis later if it shows up in profiles). Expired rows are deleted by the worker's daily maintenance job (BullMQ).
 - Server components in Next.js can read the session (they forward the cookie to the API) but can't write the renewed cookie back; renewal happens on the browser's own `/api` calls.
 - Revisit if third-party or mobile clients need API access: they would get separate, scoped API tokens, not these cookies.

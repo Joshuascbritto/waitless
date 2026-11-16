@@ -36,6 +36,6 @@ Verified: the Next.js dev rewrite does **not** buffer the stream (event delivere
 ## Consequences
 
 - Easier: one protocol for everything; auth, tenancy checks and logging are shared with REST; reconnection is free.
-- Harder: each open stream is a long-lived request, so instances must close them on shutdown and proxies must allow long timeouts (Phase 6 Ingress settings).
+- Harder: each open stream is a long-lived request, so instances must close them on shutdown and proxies must not buffer or time out long responses. Verified on Kubernetes (k3d, Traefik, ADR-0008): a stream stayed open past Traefik's 60 s read timeout with a ping every 15 s, and events reached it from an action handled by the other API replica.
 - Each instance must learn about changes made on other instances: see ADR-0004.
 - Revisit if a feature needs client → server streaming (e.g. live chat with the shop); WebSockets would be added for that feature only.

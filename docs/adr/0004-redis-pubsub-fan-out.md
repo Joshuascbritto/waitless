@@ -35,7 +35,7 @@ Option 4.
 - **One query per event per replica, not per client.** On a message, the replica's hub runs one `loadQueueState` for that queue and each connected client's payload is computed from it in memory. While a refresh is running, further events only mark the queue dirty and trigger one follow-up refresh, so a burst of clicks causes at most two queries per replica.
 - **Missed messages are bounded.** If Redis drops, ioredis reconnects and re-subscribes; streams also reconnect and receive a full snapshot. The payload carries no state, only "something changed", so a lost message delays an update until the next change or reconnect but never corrupts it.
 
-**Proof**: the mandatory test (SPEC §12.4, `apps/api/src/realtime/realtime.test.ts`) runs two API instances in one process against the same Postgres and Redis; a customer streams from instance B over real HTTP, staff act through instance A, and the customer receives the change. Also demonstrated with `docker compose --profile full` (two replicas behind Caddy): a stream on `api-1` received the update from a `call-next` served by `api-2`.
+**Proof**: the mandatory test (SPEC §12.4, `apps/api/src/realtime/realtime.test.ts`) runs two API instances in one process against the same Postgres and Redis; a customer streams from instance B over real HTTP, staff act through instance A, and the customer receives the change. Also demonstrated with `docker compose --profile full` (two replicas behind Caddy): a stream on `api-1` received the update from a `call-next` served by `api-2`. And on Kubernetes (ADR-0008) through Traefik, with the stream and the action on different pods.
 
 ## Consequences
 

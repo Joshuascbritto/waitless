@@ -31,6 +31,7 @@ Web Push for the MVP, behind a `Notifier` interface, with the open ticket page a
 - **Two dedupe layers**: BullMQ job ids (`push-{ticket}-{kind}-…`) make a duplicate enqueue a no-op while the job is retained; a unique partial index on `ticket_events (ticket_id, payload->>'kind') WHERE type = 'notified'` makes a second record impossible, and the worker checks it before sending.
 - **Who detects "almost up"**: one debounced `notify-scan` job per queue (BullMQ deduplication, 300 ms window), run by the worker, so API replicas don't each send their own copy and a burst of changes is one scan.
 - **Reliability**: `send-push` retries 3 times with exponential backoff on transient errors; `404/410 Gone` deletes the subscription. Messages have a 15-minute TTL: a late "your turn" is worse than none.
+- **SSRF guard**: the endpoint comes from an anonymous browser and the worker POSTs to it, so it must be HTTPS on the default port at a known push service (FCM, Mozilla, Apple, Windows; exact host or dot-anchored subdomain). Checked when the subscription is saved and again before every send, so no stored row can make the worker call an internal address.
 - **Privacy**: subscriptions are deleted as soon as the ticket reaches a final status; customer emails 30 days after (daily retention job). No phone numbers are collected.
 - **iOS**: a minimal manifest and icons, and an in-page hint on iPhone Safari: "Share → Add to Home Screen" to get notifications. Said plainly in the README.
 

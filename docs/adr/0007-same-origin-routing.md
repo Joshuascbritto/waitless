@@ -19,7 +19,7 @@ The web app (Next.js) and the API (Fastify) are separate processes, deployed as 
 
 Option 2. The browser only ever talks to the web origin.
 
-- Production: the Kubernetes Ingress routes `/api` to the API service and everything else to the web service, with buffering off for SSE (Phase 6).
+- Production: the Kubernetes Ingress (Traefik, ADR-0008) routes `/api` to the API service and everything else to the web service; Traefik doesn't buffer responses, so SSE streams pass through. The compose `full` profile does the same with Caddy (`flush_interval -1`).
 - Development: `next.config.ts` rewrites `/api/:path*` to `API_ORIGIN` (default `http://localhost:3001`). `TRUST_PROXY=loopback` lets the API see the real client IP through that local proxy.
 - Next.js server components call the API directly at `API_ORIGIN`, forwarding the session cookie, so protected pages can redirect before rendering.
 - The API rejects state-changing requests whose `Origin` isn't `APP_ORIGIN`.
@@ -27,5 +27,5 @@ Option 2. The browser only ever talks to the web origin.
 ## Consequences
 
 - Easier: no CORS configuration anywhere; cookie and CSRF handling stay simple and strict.
-- Harder: local development depends on the rewrite. Next.js rewrites may buffer SSE (Phase 3); if they do, development streams will point `EventSource` straight at the API origin with credentials, development only, and that exception will be documented.
+- Harder: local development depends on the rewrite. The worry that Next.js rewrites buffer SSE didn't materialize: measured in Phase 3, an event reached the browser about 26 ms after the action, so development needs no CORS exception either.
 - Revisit if the API gets third-party consumers; they would use a separate host with token authentication, leaving this setup in place for the web app.
