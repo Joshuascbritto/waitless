@@ -1,0 +1,92 @@
+# Fila — Roadmap
+
+Work one phase at a time. A box is ticked only when the code is merged and its tests pass.
+Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Commands" updated, ADRs written, commit(s).
+
+---
+
+## Phase 0 — Foundation
+- [ ] pnpm workspace + Turborepo: `apps/web`, `apps/api`, `packages/db`, `packages/shared`
+- [ ] TypeScript strict base config shared by all packages
+- [ ] Biome config; `pnpm lint`, `pnpm typecheck` at root
+- [ ] `docker-compose.yml`: postgres, redis, mailpit (with healthchecks)
+- [ ] `.env.example` with every variable documented
+- [ ] Fastify app skeleton: pino logging, requestId, helmet, problem+json error handler, `/api/health/live` and `/api/health/ready`
+- [ ] Next.js app skeleton with Tailwind; dev rewrite `/api/*` → API
+- [ ] Vitest set up in every package; one trivial passing test each
+- [ ] GitHub Actions `ci.yml`: install, lint, typecheck, test
+- [ ] README stub (title, one-liner, "work in progress")
+
+## Phase 1 — Data model, tenancy and auth
+- [ ] Drizzle schema for all tables in SPEC §5; first migration
+- [ ] SQL migration: roles `fila_owner` / `fila_app`, `ENABLE` + `FORCE ROW LEVEL SECURITY`, policies on every tenant-scoped table
+- [ ] `withTenant(tenantId, fn)` with `set_config(..., true)` and `afterCommit` hooks
+- [ ] **Test: RLS isolation** (SPEC §12.2)
+- [ ] Register / login / logout / me; argon2id; hashed session ids; cookie settings; Origin check
+- [ ] Rate limiting on login (Redis store)
+- [ ] `POST /api/tenants` (creator becomes owner); membership check middleware for `/api/admin/:tenantSlug/*`
+- [ ] Web: login/register pages, tenant picker, empty admin layout
+- [ ] ADR-0001 (RLS), ADR-0006 (sessions), ADR-0007 (same-origin)
+
+## Phase 2 — Queue core (no real-time yet)
+- [ ] `packages/shared/queue`: state machine, `canTransition`, sort-key push-back, position, display code, ETA → **all unit-tested**
+- [ ] Atomic daily numbering (SPEC §6.2) + **test: 50 parallel joins**
+- [ ] Public endpoints: queue info, join, view ticket, leave
+- [ ] Admin endpoints: board, call-next (SKIP LOCKED), call specific, start, finish, push-back, no-show, remove, walk-in
+- [ ] Every transition writes a `ticket_events` row
+- [ ] **Test: concurrent call-next** (SPEC §12.1)
+- [ ] Queue settings CRUD
+- [ ] Web customer pages: `/q/[tenant]/[queue]` (join form), `/q/[tenant]/t/[token]` (ticket view, polling every 5 s for now)
+- [ ] Web admin: queue board with all actions, walk-in form, settings page
+- [ ] OpenAPI + Swagger UI at `/api/docs`
+- [ ] ADR-0003 (SKIP LOCKED)
+
+## Phase 3 — Real-time
+- [ ] SSE plugin: headers, heartbeat, cleanup, connection gauge
+- [ ] Redis pub/sub manager: ref-counted subscription per queue per instance
+- [ ] Publish after commit on every state change (ids only)
+- [ ] Admin board stream (snapshot + incremental events)
+- [ ] Customer ticket stream (personalized, redacted payload)
+- [ ] Replace polling in web with `EventSource` + auto-reconnect UI ("reconnecting…" badge)
+- [ ] docker compose `full` profile with 2 API replicas behind Caddy
+- [ ] **Test: cross-instance fan-out** (SPEC §12.4)
+- [ ] ADR-0002 (SSE), ADR-0004 (Redis fan-out)
+
+## Phase 4 — Notifications and jobs
+- [ ] BullMQ setup; worker entrypoint `apps/api/src/worker.ts`
+- [ ] VAPID keys script (`pnpm vapid:generate`); service worker; subscribe flow on the ticket page
+- [ ] `send-push` job: "almost up" and "your turn", dedupe, retries, 410 cleanup
+- [ ] `auto-no-show` delayed job + **test: stale job is a no-op**
+- [ ] PII cleanup job (30 days)
+- [ ] Minimal PWA `manifest.json` + iOS note in the UI
+- [ ] Rate limit on join; one-active-ticket-per-device
+- [ ] ADR-0005 (Web Push vs WhatsApp/SMS)
+
+## Phase 5 — Metrics and QR
+- [ ] Metrics SQL (SPEC §10) with timezone handling + integration tests with fixed fixtures
+- [ ] Metrics page: KPI tiles, peak-hours heatmap, daily throughput chart, range selector
+- [ ] QR poster page (A4, print CSS) per queue
+- [ ] Seed script with 30 days of realistic history + "live" waiting tickets (SPEC §13)
+
+## Phase 6 — Deploy
+- [ ] Multi-stage Dockerfiles (web, api), non-root
+- [ ] Kustomize base + overlays (local kind/k3d, prod)
+- [ ] Migration Job; probes; resources; PDB; Ingress with SSE-friendly settings
+- [ ] CronJobs: demo reset, PII cleanup
+- [ ] `release.yml`: build → push to GHCR → deploy
+- [ ] Prometheus `/api/metrics`
+- [ ] Public demo URL live with HTTPS
+
+## Phase 7 — Portfolio polish
+- [ ] Playwright e2e (two contexts) in CI
+- [ ] README complete (SPEC §15), Mermaid diagram, GIF, demo credentials
+- [ ] All ADRs reviewed and linked from the README
+- [ ] Lighthouse pass on customer pages (mobile): fast and accessible
+- [ ] Repo hygiene: LICENSE (MIT), issue templates, topics/tags on GitHub, pinned on profile
+- [ ] Project card on joshuastrauch.com.br
+
+## v1.1 (only after Phase 7)
+- [ ] Team invites by email
+- [ ] Email notifications (Resend) behind the `Notifier` interface
+- [ ] pt-BR translation (next-intl)
+- [ ] Sound alert on the admin board when a customer joins
