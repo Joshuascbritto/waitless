@@ -38,4 +38,6 @@ export async function pingDatabase(db: Queryable): Promise<void> {
 // Query operators, re-exported so consumers share this package's drizzle-orm
 // instance instead of resolving their own copy.
 export { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+export * from "./maintenance.ts";
+export * from "./notifications.ts";
 export * from "./queue.ts";

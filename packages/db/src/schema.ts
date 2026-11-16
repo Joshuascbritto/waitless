@@ -174,6 +174,10 @@ export const tickets = pgTable(
     index("tickets_waiting_order_idx")
       .on(t.queueId, t.sortKey, t.id)
       .where(sql`${t.status} = 'waiting'`),
+    // One active ticket per device per queue (SPEC §9): a double tap can't create two.
+    uniqueIndex("tickets_one_active_per_device_idx")
+      .on(t.queueId, t.deviceId)
+      .where(sql`${t.deviceId} is not null and ${t.status} in ('waiting', 'called', 'serving')`),
     check("tickets_source_check", sql`${t.source} in ('qr', 'walk_in')`),
     check(
       "tickets_status_check",

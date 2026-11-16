@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "tickets_one_active_per_device_idx" ON "tickets" USING btree ("queue_id","device_id") WHERE "tickets"."device_id" is not null and "tickets"."status" in ('waiting', 'called', 'serving');

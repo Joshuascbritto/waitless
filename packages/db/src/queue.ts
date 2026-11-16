@@ -86,6 +86,8 @@ export interface NewTicket {
   customerName: string;
   customerEmail?: string | null | undefined;
   source: "qr" | "walk_in";
+  /** Anonymous device cookie; with the unique index, one active ticket per device per queue. */
+  deviceId?: string | null | undefined;
   actor: Actor;
   /** Tests only: pretend the ticket is created at this instant (numbering day). */
   at?: Date;
@@ -112,6 +114,7 @@ export async function createTicket(tx: Tx, input: NewTicket): Promise<TicketRow>
       displayCode: formatDisplayCode(queue.prefix, number),
       customerName: input.customerName,
       customerEmail: input.customerEmail ?? null,
+      deviceId: input.deviceId ?? null,
       source: input.source,
       status: "waiting",
       // Join time in epoch ms, from the database clock: one clock for all API replicas.
@@ -306,4 +309,51 @@ export async function loadQueueState(
     serving: active.filter((t) => t.status === "serving").sort(byTime("servingAt")),
     recentServiceMinutes: durations.rows.map((row) => Number(row.minutes)).reverse(),
   };
+}
+
+/** This device's active ticket in this queue, if any (SPEC §9). */
+export async function findActiveTicketForDevice(
+  tx: Tx,
+  input: { queueId: string; deviceId: string },
+): Promise<TicketRow | undefined> {
+  const [ticket] = await tx
+    .select()
+    .from(tickets)
+    .where(
+      and(
+        eq(tickets.queueId, input.queueId),
+        eq(tickets.deviceId, input.deviceId),
+        inArray(tickets.status, ["waiting", "called", "serving"]),
+      ),
+    );
+  return ticket;
+}
+
+/**
+ * The auto no-show (SPEC §6.6). Marks the ticket no-show only if it is still
+ * `called` by the SAME call: a push-back followed by a new call changes
+ * called_at, so an older delayed job matches nothing and does nothing.
+ * Compared at millisecond precision, because that is what the job carries
+ * (JavaScript dates), while Postgres stores microseconds.
+ */
+export async function expireCall(
+  tx: Tx,
+  input: { ticketId: string; calledAtMs: number },
+): Promise<TicketRow | undefined> {
+  const [ticket] = await tx
+    .update(tickets)
+    .set({ status: "no_show", finishedAt: sql`now()` })
+    .where(
+      and(
+        eq(tickets.id, input.ticketId),
+        eq(tickets.status, "called"),
+        sql`floor(extract(epoch from ${tickets.calledAt}) * 1000) = ${input.calledAtMs}`,
+      ),
+    )
+    .returning();
+  if (ticket) {
+    await recordEvent(tx, ticket, "no_show", { type: "system", id: null }, { reason: "timeout" });
+    await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.ticketId, ticket.id));
+  }
+  return ticket;
 }
