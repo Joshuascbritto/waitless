@@ -34,3 +34,46 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+
+  manifests:
+    name: Kubernetes manifests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        # Explicit bash adds pipefail: a kustomize error must fail the pipe.
+        shell: bash
+    env:
+      KUBECONFORM_VERSION: v0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install kubeconform
+        run: |
+          curl -sSLo kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum -c -
+          tar xzf kubeconform.tar.gz kubeconform
+
+      # Every overlay must render and match the Kubernetes API schemas
+      # (CRDs such as cert-manager's come from the community catalog).
+      # The prod overlay renders with its example secrets.
+      - name: Render and validate
+        run: |
+          cd deploy/k8s/overlays/prod
+          cp secrets.env.example secrets.env
+          cp postgres.env.example postgres.env
+          echo '{"auths":{}}' > ghcr.dockerconfigjson
+          cd "$GITHUB_WORKSPACE"
+          for overlay in local prod prod/cluster; do
+            echo "::group::$overlay"
+            kubectl kustomize "deploy/k8s/overlays/$overlay" | ./kubeconform -strict -summary \
+              -kubernetes-version 1.37.0 \
+              -schema-location default \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' -
+            echo "::endgroup::"
+          done
+
+      - name: Check the deploy script
+        run: bash -n deploy/k8s/deploy.sh

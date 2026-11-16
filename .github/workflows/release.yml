@@ -1,0 +1,120 @@
+name: Release
+
+# After CI passes on main: build both images, push them to GHCR tagged with
+# the commit SHA, then deploy that exact SHA (SPEC §14). Deploying is off
+# until the repository variable DEPLOY_ENABLED is "true" and the production
+# environment has its secrets (deploy/k8s/README.md), so images still build
+# and publish before a cluster exists.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One release at a time, in order; a newer one waits instead of racing.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  images:
+    name: Build and push ${{ matrix.image }}
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        image: [api, web]
+    steps:
+      # The commit CI tested, not whatever main points at now.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # Image names must be lowercase; the account name isn't.
+      - name: Image name
+        id: name
+        shell: bash
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/waitless-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/${{ matrix.image }}.Dockerfile
+          push: true
+          tags: |
+            ${{ steps.name.outputs.image }}:${{ github.event.workflow_run.head_sha }}
+            ${{ steps.name.outputs.image }}:main
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+
+  deploy:
+    name: Deploy to production
+    needs: images
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.DEMO_URL }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # Secrets become files only on the runner, inside gitignored paths.
+      - name: Write cluster credentials and secrets
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG }}
+          SECRETS_ENV: ${{ secrets.PROD_SECRETS_ENV }}
+          POSTGRES_ENV: ${{ secrets.PROD_POSTGRES_ENV }}
+          GHCR_PULL_DOCKERCONFIGJSON: ${{ secrets.GHCR_PULL_DOCKERCONFIGJSON }}
+        run: |
+          umask 077
+          mkdir -p ~/.kube
+          printf '%s\n' "$KUBECONFIG_CONTENT" > ~/.kube/config
+          cd deploy/k8s/overlays/prod
+          printf '%s\n' "$SECRETS_ENV" > secrets.env
+          printf '%s\n' "$POSTGRES_ENV" > postgres.env
+          printf '%s' "$GHCR_PULL_DOCKERCONFIGJSON" > ghcr.dockerconfigjson
+
+      # Pin the images to this commit with a throwaway overlay on top of prod.
+      - name: Pin image tags
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          mkdir -p deploy/k8s/overlays/release
+          cat > deploy/k8s/overlays/release/kustomization.yaml <<EOF
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          resources:
+            - ../prod
+          images:
+            - name: ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/waitless-api
+              newTag: ${SHA}
+            - name: ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/waitless-web
+              newTag: ${SHA}
+          EOF
+
+      - name: Deploy
+        run: deploy/k8s/deploy.sh deploy/k8s/overlays/release
