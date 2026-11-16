@@ -67,7 +67,7 @@ cp .env.example .env        # once; the API dev script loads it
 docker compose up -d        # Postgres, Redis, Mailpit (wait for "healthy": docker compose ps)
 pnpm install
 pnpm db:migrate             # apply migrations as waitless_owner (MIGRATION_DATABASE_URL)
-pnpm dev                    # web :3000 + api :3001 in watch mode (packages rebuild on change)
+pnpm dev                    # web :3000 + api :3001 + worker, in watch mode (packages rebuild on change)
                             # API docs (API_DOCS=true): http://localhost:3000/api/docs
 pnpm test                   # Vitest everywhere; db and api integration tests need Docker (Testcontainers)
 pnpm lint                   # Biome: lint + format check (Markdown excluded)
@@ -76,10 +76,11 @@ pnpm typecheck              # tsc --noEmit everywhere (web runs `next typegen` f
 pnpm build                  # packages → dist/, api → dist/, web → .next/
 pnpm db:generate            # after editing packages/db/src/schema.ts: new migration from the diff
                             # (RLS and other hand-written SQL: pnpm --filter @waitless/db exec drizzle-kit generate --custom --name=<name>)
+pnpm vapid:generate         # Web Push keys (JSON); put them in .env as VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY
 docker compose down -v      # wipes local data; needed after changing deploy/docker/postgres/initdb/*
 docker compose --profile full up -d --build
-                            # prod-like stack on http://localhost:8080: migrations, web, 2 API replicas, Caddy
-docker compose --profile full rm -sf migrate api-1 api-2 web caddy   # stop it, keep the dev services
+                            # prod-like stack on http://localhost:8080: migrations, web, 2 API replicas, worker, Caddy
+docker compose --profile full rm -sf migrate api-1 api-2 worker web caddy   # stop it, keep the dev services
 
 # Not yet available (planned):
 pnpm db:seed                # Phase 5: demo tenants + 30 days of history

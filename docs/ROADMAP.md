@@ -55,14 +55,14 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [x] ADR-0002 (SSE), ADR-0004 (Redis fan-out)
 
 ## Phase 4 — Notifications and jobs
-- [ ] BullMQ setup; worker entrypoint `apps/api/src/worker.ts`
-- [ ] VAPID keys script (`pnpm vapid:generate`); service worker; subscribe flow on the ticket page
-- [ ] `send-push` job: "almost up" and "your turn", dedupe, retries, 410 cleanup
-- [ ] `auto-no-show` delayed job + **test: stale job is a no-op**
-- [ ] PII cleanup job (30 days)
-- [ ] Minimal PWA `manifest.json` + iOS note in the UI
-- [ ] Rate limit on join; one-active-ticket-per-device
-- [ ] ADR-0005 (Web Push vs WhatsApp/SMS)
+- [x] BullMQ setup; worker entrypoint `apps/api/src/worker.ts`
+- [x] VAPID keys script (`pnpm vapid:generate`); service worker; subscribe flow on the ticket page
+- [x] `send-push` job: "almost up" and "your turn", dedupe, retries, 410 cleanup
+- [x] `auto-no-show` delayed job + **test: stale job is a no-op**
+- [x] PII cleanup job (30 days)
+- [x] Minimal PWA `manifest.json` + iOS note in the UI
+- [x] Rate limit on join; one-active-ticket-per-device
+- [x] ADR-0005 (Web Push vs WhatsApp/SMS)
 
 ## Phase 5 — Metrics and QR
 - [ ] Metrics SQL (SPEC §10) with timezone handling + integration tests with fixed fixtures

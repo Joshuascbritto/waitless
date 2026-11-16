@@ -219,10 +219,10 @@ When a ticket is called, enqueue a BullMQ **delayed job** `auto-no-show` with de
 
 - Web Push via VAPID keys (`.env`: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). The service worker lives in `apps/web/public/sw.js`.
 - Triggers (enqueued as BullMQ `send-push` jobs, retried with exponential backoff, max 3 attempts):
-  - Position becomes ≤ `notify_when_ahead` → "You're almost up at {tenant} — {n} ahead of you".
-  - Ticket is called → "It's your turn! Ticket A-023".
-- **Who detects "almost up"**: any state change can move many tickets forward at once. After commit, the API that made the change enqueues one `notify-scan` job for the queue (`{ tenantId, queueId }`). The worker reads the ordered waiting list once and enqueues `send-push` for every ticket at or under the threshold. Only one place runs this check, so the API replicas don't each send their own copy.
-- **Dedupe, two layers**: (1) `send-push` uses job id `push-{ticketId}-{kind}`, so BullMQ ignores a duplicate enqueue while the first job is retained; (2) after a successful send the worker inserts a `ticket_events` row (`type = 'notified', payload.kind`), and the unique partial index (§5) rejects a second one. The worker checks for that row before sending.
+  - At most `notify_when_ahead` people ahead (`position − 1 ≤ N`; `N = 0` turns it off) → "You're almost up at {tenant}", "{n} ahead of you". Once per ticket (kind `almost`).
+  - Ticket is called → "It's your turn! Ticket A-023". Once per call (kind `called:{calledAtMs}`), so a re-call after a push-back notifies again.
+- **Who detects "almost up"**: any state change can move many tickets forward at once. After commit, the API that made the change enqueues one `notify-scan` job for the queue (`{ tenantId, queueId }`), debounced with BullMQ deduplication (300 ms window, the job runs after it). The worker reads the ordered waiting list once and enqueues `send-push` for every ticket at or under the threshold. Only one place runs this check, so the API replicas don't each send their own copy.
+- **Dedupe, two layers**: (1) `send-push` uses job id `push-{ticketId}-{kind}-{calledAtMs|once}`, so BullMQ ignores a duplicate enqueue while the first job is retained; (2) after a successful send the worker inserts a `ticket_events` row (`type = 'notified', payload.kind`), and the unique partial index (§5) rejects a second one. The worker checks for that row before sending.
 - `410 Gone` from the push service → delete that subscription.
 - Email (v1.1): same triggers, through Resend in prod and Mailpit in dev, behind a `Notifier` interface so the job doesn't care about the channel.
 - iOS note for the README: Web Push on iPhone works only if the site is added to the home screen (PWA). Add a minimal `manifest.json` and say so honestly.
@@ -260,9 +260,9 @@ CREATE POLICY tenant_isolation ON tickets
 **Auth**
 - Email + password, hashed with argon2id. Session id is random 256-bit, stored hashed. Cookie: `__Host-waitless_session; HttpOnly; Secure; SameSite=Lax; Path=/`. 14-day sliding expiry, renewed only when less than half remains (ADR-0006).
 - CSRF: SameSite=Lax plus an `Origin` header check on state-changing requests.
-- Rate limits (`@fastify/rate-limit` backed by Redis): login 5/min per IP+email; join queue 3/10 min per device per queue plus 30/10 min per IP per queue as a backstop; public stream connections capped per IP. The per-IP limits are loose on purpose: Brazilian mobile carriers use CGNAT and a shop's Wi-Fi is one IP, so many real customers share an address.
-- **Device id**: an anonymous random cookie `waitless_device` (HttpOnly, 1 year), set on the first public request.
-- One active ticket per device per queue: if this device already has an active ticket in this queue (server-side, by `device_id`), return it instead of creating another. The client also keeps the token in localStorage. This is a UX guard against double taps, not a security control; clearing cookies bypasses it, and that's acceptable.
+- Rate limits (Redis-backed): login 5/min per IP+email (`@fastify/rate-limit`); join queue 3/10 min per device per queue plus 30/10 min per IP per queue as a backstop (a small fixed-window counter, because the plugin runs only one limiter per request); public stream connections capped per IP. The per-IP limits are loose on purpose: Brazilian mobile carriers use CGNAT and a shop's Wi-Fi is one IP, so many real customers share an address.
+- **Device id**: an anonymous random cookie `__Host-waitless_device` (HttpOnly, Secure, SameSite=Lax, 1 year), set on the first public request.
+- One active ticket per device per queue: if this device already has an active ticket in this queue (server-side, by `device_id`), return it (`200`) instead of creating another. A unique partial index on `(queue_id, device_id)` for active statuses makes two simultaneous taps return the same ticket. The client also keeps the token in localStorage. This is a UX guard against double taps, not a security control; clearing cookies bypasses it, and that's acceptable.
 - Security headers via `@fastify/helmet`. `public_token` is never logged.
 
 ## 10. Metrics
