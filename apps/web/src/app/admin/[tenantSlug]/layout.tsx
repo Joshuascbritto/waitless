@@ -26,7 +26,7 @@ export default async function AdminLayout({
 
   return (
     <div className="min-h-dvh">
-      <header className="border-b border-neutral-200">
+      <header className="border-b border-neutral-200 print:hidden">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
             <Link href="/tenants" className="font-semibold tracking-tight">
@@ -38,10 +38,21 @@ export default async function AdminLayout({
               {membership.role}
             </span>
           </div>
-          <LogoutButton />
+          <nav className="flex items-center gap-4 text-sm">
+            <Link href={`/admin/${tenantSlug}`} className="text-neutral-600 hover:text-neutral-900">
+              Queues
+            </Link>
+            <Link
+              href={`/admin/${tenantSlug}/metrics`}
+              className="text-neutral-600 hover:text-neutral-900"
+            >
+              Metrics
+            </Link>
+            <LogoutButton />
+          </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+      <main className="mx-auto max-w-5xl px-4 py-8 print:max-w-none print:p-0">{children}</main>
     </div>
   );
 }
