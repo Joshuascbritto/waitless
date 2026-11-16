@@ -2,12 +2,11 @@
 
 import type { AdminTicket, Board } from "@waitless/shared";
 import Link from "next/link";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { ApiError, apiRequest } from "@/lib/api";
 import { minutesAgo } from "@/lib/format";
-import { usePolling } from "@/lib/use-polling";
-
-const POLL_MS = 3_000;
+import { useEventStream } from "@/lib/use-event-stream";
+import { StreamBadge } from "./stream-badge";
 
 type ActionPath = "call" | "start" | "finish" | "push-back" | "no-show" | "remove";
 
@@ -20,13 +19,20 @@ interface Props {
 /** The staff screen: who's waiting, who's called, who's being served, and the buttons. */
 export function QueueBoard({ tenantSlug, queueId, isOwner }: Props) {
   const base = `/api/admin/${tenantSlug}` as const;
-  const {
-    data: board,
-    error,
-    refresh,
-  } = usePolling(() => apiRequest<Board>(`${base}/queues/${queueId}/board`), POLL_MS);
+  // The server pushes the whole board on connect and after every change, from any replica.
+  const { data: board, status } = useEventStream<Board>(
+    `${base}/queues/${queueId}/stream`,
+    "board",
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  // Re-render every 30 s so "joined 3 min ago" stays true without new events.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -36,7 +42,7 @@ export function QueueBoard({ tenantSlug, queueId, isOwner }: Props) {
     } catch (err) {
       setMessage(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
     } finally {
-      await refresh();
+      // No refetch: the result arrives through the stream.
       setBusy(false);
     }
   }
@@ -64,7 +70,11 @@ export function QueueBoard({ tenantSlug, queueId, isOwner }: Props) {
   }
 
   if (!board) {
-    return <p className="text-neutral-500">{error ? "Couldn't load the board." : "Loading…"}</p>;
+    return (
+      <p className="text-neutral-500">
+        {status === "failed" ? "Couldn't open this queue." : "Loading…"}
+      </p>
+    );
   }
   const { queue } = board;
 
@@ -83,8 +93,8 @@ export function QueueBoard({ tenantSlug, queueId, isOwner }: Props) {
             >
               /q/{tenantSlug}/{queue.slug}
             </a>
-            {error ? " · reconnecting…" : ""}
           </p>
+          <StreamBadge status={status} />
         </div>
         <div className="flex items-center gap-3">
           {isOwner ? (

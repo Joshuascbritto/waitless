@@ -2,11 +2,10 @@
 
 import { isFinal, type PublicTicketViewResponse, type TicketStatus } from "@waitless/shared";
 import { useEffect, useState } from "react";
-import { ApiError, apiRequest } from "@/lib/api";
+import { apiRequest } from "@/lib/api";
 import { etaText, ticketStorageKey, writeStorage } from "@/lib/format";
-import { usePolling } from "@/lib/use-polling";
-
-const POLL_MS = 5_000;
+import { useEventStream } from "@/lib/use-event-stream";
+import { StreamBadge } from "./stream-badge";
 
 const HEADLINE: Record<TicketStatus, string> = {
   waiting: "You're in line",
@@ -19,9 +18,11 @@ const HEADLINE: Record<TicketStatus, string> = {
 };
 
 export function TicketView({ tenantSlug, token }: { tenantSlug: string; token: string }) {
-  const { data, error, refresh } = usePolling(
-    () => apiRequest<PublicTicketViewResponse>(`/api/public/q/${tenantSlug}/t/${token}`),
-    POLL_MS,
+  // Live updates over SSE; the stream closes itself once the ticket is over.
+  const { data, status } = useEventStream<PublicTicketViewResponse>(
+    `/api/public/q/${tenantSlug}/t/${token}/stream`,
+    "ticket",
+    (view) => isFinal(view.status),
   );
   const [leaving, setLeaving] = useState(false);
 
@@ -33,19 +34,21 @@ export function TicketView({ tenantSlug, token }: { tenantSlug: string; token: s
   }, [data, tenantSlug, token]);
 
   if (!data) {
-    if (error instanceof ApiError && error.status === 404) {
-      return <p className="text-neutral-600">This ticket doesn't exist.</p>;
+    if (status === "failed") {
+      return (
+        <p className="text-neutral-600">This ticket doesn't exist or the link is incomplete.</p>
+      );
     }
-    return <p className="text-neutral-500">{error ? "Reconnecting…" : "Loading your ticket…"}</p>;
+    return <p className="text-neutral-500">Loading your ticket…</p>;
   }
 
   async function leave() {
     if (!window.confirm("Leave the line? You'll lose your place.")) return;
     setLeaving(true);
     try {
+      // The stream delivers the new "cancelled" state.
       await apiRequest(`/api/public/q/${tenantSlug}/t/${token}`, { method: "DELETE" });
     } finally {
-      await refresh();
       setLeaving(false);
     }
   }
@@ -96,7 +99,7 @@ export function TicketView({ tenantSlug, token }: { tenantSlug: string; token: s
       {active && data.status !== "serving" ? (
         <div className="flex flex-col gap-3">
           <p className="text-sm text-neutral-500">
-            Keep this page open. It updates by itself{error ? " (reconnecting…)" : ""}.
+            Keep this page open. It updates by itself. <StreamBadge status={status} />
           </p>
           <button
             type="button"
