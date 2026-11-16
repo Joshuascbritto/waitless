@@ -9,7 +9,8 @@
     "incremental": true,
     "declaration": false,
     "declarationMap": false,
-    "plugins": [{ "name": "next" }]
+    "plugins": [{ "name": "next" }],
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": [
     "next-env.d.ts",
