@@ -1,6 +1,7 @@
 import { ConflictError, NotFoundError, PROBLEM_CONTENT_TYPE } from "@waitless/shared";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { buildApp } from "../app.ts";
 
 let app: FastifyInstance;
@@ -16,15 +17,9 @@ beforeEach(async () => {
   app.get("/test/bug", async () => {
     throw new Error("connect ECONNREFUSED 10.0.0.5:5432 password=hunter2");
   });
-  app.post(
-    "/test/validated",
-    {
-      schema: {
-        body: { type: "object", required: ["name"], properties: { name: { type: "string" } } },
-      },
-    },
-    async () => ({ ok: true }),
-  );
+  app.post("/test/validated", { schema: { body: z.object({ name: z.string() }) } }, async () => ({
+    ok: true,
+  }));
   await app.ready();
 });
 

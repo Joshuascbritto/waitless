@@ -1,4 +1,4 @@
-import { createPool, pingDatabase } from "@waitless/db";
+import { createDb, createPool, pingDatabase } from "@waitless/db";
 import { Redis } from "ioredis";
 import { buildApp } from "./app.ts";
 import { loadEnv } from "./env.ts";
@@ -12,9 +12,15 @@ const redis = new Redis(env.REDIS_URL, {
   enableOfflineQueue: false,
   maxRetriesPerRequest: 1,
 });
+const db = createDb(pool, {
+  // Runs after a commit, so the request already succeeded; log, don't throw.
+  onAfterCommitError: (err) => app.log.error({ err }, "afterCommit hook failed"),
+});
 
 const app = await buildApp({
   logger: loggerOptions(env.LOG_LEVEL),
+  trustProxy: env.TRUST_PROXY,
+  services: { db, redis, appOrigin: env.APP_ORIGIN },
   readinessChecks: [
     { name: "postgres", check: () => pingDatabase(pool) },
     {
