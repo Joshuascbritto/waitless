@@ -10,7 +10,7 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [x] pnpm workspace + Turborepo: `apps/web`, `apps/api`, `packages/db`, `packages/shared`
 - [x] TypeScript strict base config shared by all packages
 - [x] Biome config; `pnpm lint`, `pnpm typecheck` at root
-- [ ] `docker-compose.yml`: postgres, redis, mailpit (with healthchecks)
+- [x] `docker-compose.yml`: postgres, redis, mailpit (with healthchecks)
 - [x] `.env.example` with every variable documented
 - [x] Fastify app skeleton: pino logging, requestId, helmet, problem+json error handler, `/api/health/live` and `/api/health/ready`
 - [x] Next.js app skeleton with Tailwind; dev rewrite `/api/*` → API
