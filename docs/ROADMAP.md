@@ -86,7 +86,7 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [x] Lighthouse pass on customer pages (mobile): performance 97–98, accessibility 100
 - [x] Repo hygiene: LICENSE (MIT), issue/PR templates, SECURITY.md, topics on GitHub, public after a gitleaks scan of the full history
 - [ ] Pinned on the GitHub profile (manual: no API for pins)
-- [ ] Project card on joshuastrauch.com.br (Landing-Josh PR #10, open)
+- [x] Project card on joshuastrauch.com.br (Landing-Josh PR #10)
 
 ## v1.1 (only after Phase 7)
 - [ ] Team invites by email
