@@ -2,6 +2,7 @@ import { createDb, createPool, pingDatabase } from "@waitless/db";
 import { Redis } from "ioredis";
 import { buildApp } from "./app.ts";
 import { loadEnv } from "./env.ts";
+import { JobQueues } from "./jobs/queues.ts";
 import { loggerOptions } from "./logging.ts";
 
 const env = loadEnv(process.env);
@@ -12,6 +13,9 @@ const redis = new Redis(env.REDIS_URL, {
   enableOfflineQueue: false,
   maxRetriesPerRequest: 1,
 });
+// BullMQ needs its own connection settings (it retries commands indefinitely by design).
+const jobsConnection = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
+const jobs = new JobQueues(jobsConnection);
 const db = createDb(pool, {
   // Runs after a commit, so the request already succeeded; log, don't throw.
   onAfterCommitError: (err) => app.log.error({ err }, "afterCommit hook failed"),
@@ -21,7 +25,13 @@ const app = await buildApp({
   logger: loggerOptions(env.LOG_LEVEL),
   trustProxy: env.TRUST_PROXY,
   docs: env.API_DOCS,
-  services: { db, redis, appOrigin: env.APP_ORIGIN },
+  services: {
+    db,
+    redis,
+    jobs,
+    appOrigin: env.APP_ORIGIN,
+    vapidPublicKey: env.VAPID_PUBLIC_KEY ?? null,
+  },
   readinessChecks: [
     { name: "postgres", check: () => pingDatabase(pool) },
     {
@@ -37,9 +47,11 @@ const app = await buildApp({
 // (pg) or print "Unhandled error event" on every retry (ioredis).
 pool.on("error", (err) => app.log.warn({ err }, "postgres pool error"));
 redis.on("error", (err) => app.log.warn({ err }, "redis connection error"));
+jobsConnection.on("error", (err) => app.log.warn({ err }, "redis (jobs) connection error"));
 
 app.addHook("onClose", async () => {
-  await Promise.allSettled([pool.end(), redis.quit()]);
+  await jobs.close();
+  await Promise.allSettled([pool.end(), redis.quit(), jobsConnection.quit()]);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

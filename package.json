@@ -7,14 +7,15 @@
     "node": ">=24.11.0 <25"
   },
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "turbo run dev dev:worker",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "lint": "biome check .",
     "format": "biome check --write .",
     "db:generate": "pnpm --filter @waitless/db db:generate",
-    "db:migrate": "pnpm --filter @waitless/db db:migrate"
+    "db:migrate": "pnpm --filter @waitless/db db:migrate",
+    "vapid:generate": "pnpm --filter @waitless/api vapid:generate"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7",

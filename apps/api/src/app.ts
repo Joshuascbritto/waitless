@@ -12,9 +12,11 @@ import {
   validatorCompiler,
 } from "fastify-type-provider-zod";
 import type { Redis } from "ioredis";
+import type { JobQueues } from "./jobs/queues.ts";
 import { registerAuth } from "./plugins/auth.ts";
 import { registerErrorHandlers } from "./plugins/error-handler.ts";
 import { registerOriginCheck } from "./plugins/origin-check.ts";
+import { createSideEffects } from "./queue/side-effects.ts";
 import { createRealtime } from "./realtime/index.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { authRoutes } from "./routes/auth.ts";
@@ -26,6 +28,10 @@ import { tenantRoutes } from "./routes/tenants.ts";
 export interface Services {
   db: Db;
   redis: Redis;
+  /** Background job producer (BullMQ). */
+  jobs: JobQueues;
+  /** Web Push public key, or null when push isn't configured. */
+  vapidPublicKey: string | null;
   /** The web app's origin, the only one allowed to make state-changing requests. */
   appOrigin: string;
 }
@@ -129,11 +135,20 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
     await app.register(authRoutes, { prefix: "/api/auth", db: services.db });
     await app.register(tenantRoutes, { prefix: "/api/tenants", db: services.db });
-    await app.register(publicRoutes, { prefix: "/api/public", db: services.db, realtime });
+    const effects = createSideEffects(realtime, services.jobs);
+    await app.register(publicRoutes, {
+      prefix: "/api/public",
+      db: services.db,
+      redis: services.redis,
+      realtime,
+      effects,
+      vapidPublicKey: services.vapidPublicKey,
+    });
     await app.register(adminRoutes, {
       prefix: "/api/admin/:tenantSlug",
       db: services.db,
       realtime,
+      effects,
     });
   }
 

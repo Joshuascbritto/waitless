@@ -33,8 +33,9 @@ import type { FastifyRequest } from "fastify";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { findQueue } from "../queue/lookup.ts";
+import type { SideEffects } from "../queue/side-effects.ts";
 import { toAdminTicket, toBoard, toQueue } from "../queue/views.ts";
-import { type QueueEvent, type Realtime, SseConnection } from "../realtime/index.ts";
+import { type Realtime, SseConnection } from "../realtime/index.ts";
 
 // Params must include tenantSlug: validation replaces request.params, and the
 // membership preHandler reads it afterwards.
@@ -73,13 +74,11 @@ const rethrowSlugConflict = (error: unknown): never => {
     : error;
 };
 
-export const adminRoutes: FastifyPluginAsyncZod<{ db: Db; realtime: Realtime }> = async (
-  app,
-  { db, realtime },
-) => {
-  /** Announce a change to every replica, only once the transaction has committed. */
-  const announce = (event: QueueEvent) => () => realtime.events.publish(event);
-
+export const adminRoutes: FastifyPluginAsyncZod<{
+  db: Db;
+  realtime: Realtime;
+  effects: SideEffects;
+}> = async (app, { db, realtime, effects }) => {
   app.addHook("preHandler", app.requireUser);
   app.addHook("preHandler", app.requireTenantMember);
 
@@ -153,13 +152,13 @@ export const adminRoutes: FastifyPluginAsyncZod<{ db: Db; realtime: Realtime }> 
       requireOwner(request);
       const { tenant } = context(request);
       const row = await db
-        .withTenant(tenant.id, async (tx, { afterCommit }) => {
+        .withTenant(tenant.id, async (tx, ctx) => {
           const queue = await findQueue(tx, tenant.id, request.params.queueId);
           if (Object.keys(request.body).length === 0) {
             return queue;
           }
           // Open/closed, servers and service time change what everyone sees.
-          afterCommit(announce({ type: "queue.updated", tenantId: tenant.id, queueId: queue.id }));
+          effects.changed(ctx, { type: "queue.updated", tenantId: tenant.id, queueId: queue.id });
           const [updated] = await tx
             .update(queues)
             .set(request.body)
@@ -242,18 +241,17 @@ export const adminRoutes: FastifyPluginAsyncZod<{ db: Db; realtime: Realtime }> 
     },
     async (request, reply) => {
       const { tenant } = context(request);
-      const ticket = await db.withTenant(tenant.id, async (tx, { afterCommit }) => {
+      const ticket = await db.withTenant(tenant.id, async (tx, ctx) => {
         const queue = await findQueue(tx, tenant.id, request.params.queueId);
         const called = await callNext(tx, { queueId: queue.id, staffId: staffId(request) });
         if (called) {
-          afterCommit(
-            announce({
-              type: "ticket.updated",
-              tenantId: tenant.id,
-              queueId: queue.id,
-              ticketId: called.id,
-            }),
-          );
+          effects.changed(ctx, {
+            type: "ticket.updated",
+            tenantId: tenant.id,
+            queueId: queue.id,
+            ticketId: called.id,
+          });
+          effects.called(ctx, queue, called);
         }
         return called;
       });
@@ -277,7 +275,7 @@ export const adminRoutes: FastifyPluginAsyncZod<{ db: Db; realtime: Realtime }> 
     },
     async (request, reply) => {
       const { tenant } = context(request);
-      const ticket = await db.withTenant(tenant.id, async (tx, { afterCommit }) => {
+      const ticket = await db.withTenant(tenant.id, async (tx, ctx) => {
         const queue = await findQueue(tx, tenant.id, request.params.queueId);
         const created = await createTicket(tx, {
           queue,
@@ -286,14 +284,12 @@ export const adminRoutes: FastifyPluginAsyncZod<{ db: Db; realtime: Realtime }> 
           source: "walk_in",
           actor: { type: "staff", id: staffId(request) },
         });
-        afterCommit(
-          announce({
-            type: "ticket.created",
-            tenantId: tenant.id,
-            queueId: queue.id,
-            ticketId: created.id,
-          }),
-        );
+        effects.changed(ctx, {
+          type: "ticket.created",
+          tenantId: tenant.id,
+          queueId: queue.id,
+          ticketId: created.id,
+        });
         return created;
       });
       return reply.code(201).send({ ticket: toAdminTicket(ticket) });
@@ -316,7 +312,7 @@ export const adminRoutes: FastifyPluginAsyncZod<{ db: Db; realtime: Realtime }> 
       const { tenant } = context(request);
       const action = TICKET_ACTION_PATHS[request.params.action];
       const actor = { type: "staff" as const, id: staffId(request) };
-      const ticket = await db.withTenant(tenant.id, async (tx, { afterCommit }) => {
+      const ticket = await db.withTenant(tenant.id, async (tx, ctx) => {
         const updated =
           action === "push_back"
             ? await pushBack(tx, {
@@ -325,14 +321,16 @@ export const adminRoutes: FastifyPluginAsyncZod<{ db: Db; realtime: Realtime }> 
                 actor,
               })
             : await transitionTicket(tx, { ticketId: request.params.ticketId, action, actor });
-        afterCommit(
-          announce({
-            type: "ticket.updated",
-            tenantId: tenant.id,
-            queueId: updated.queueId,
-            ticketId: updated.id,
-          }),
-        );
+        effects.changed(ctx, {
+          type: "ticket.updated",
+          tenantId: tenant.id,
+          queueId: updated.queueId,
+          ticketId: updated.id,
+        });
+        if (action === "call") {
+          const queue = await findQueue(tx, tenant.id, updated.queueId);
+          effects.called(ctx, queue, updated);
+        }
         return updated;
       });
       return { ticket: toAdminTicket(ticket) };

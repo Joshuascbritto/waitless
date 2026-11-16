@@ -8,8 +8,10 @@ import { createTestPool, startTestDatabase, type TestDatabase } from "@waitless/
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { Redis } from "ioredis";
 import { buildApp } from "../app.ts";
+import { JobQueues } from "../jobs/queues.ts";
 
 export const APP_ORIGIN = "http://localhost:3000";
+export const TEST_VAPID_PUBLIC_KEY = "test-vapid-public-key";
 
 export interface Harness {
   app: FastifyInstance;
@@ -17,6 +19,9 @@ export interface Harness {
   pool: ReturnType<typeof createTestPool>;
   /** A command connection to the shared Redis, for assertions (e.g. PUBSUB NUMSUB). */
   redis: Redis;
+  /** Job queues on the shared Redis: the API enqueues here; tests inspect or run them. */
+  jobs: JobQueues;
+  redisUrl: string;
   /**
    * Another API instance on the same Postgres and Redis, like a second replica:
    * its own pool, Redis connections and subscriptions. Closed by stop().
@@ -35,6 +40,8 @@ export async function startHarness(): Promise<Harness> {
   const appUrl = database.appUrl;
   const redisUrl = redisContainer.getConnectionUrl();
 
+  const jobsConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
+  const jobs = new JobQueues(jobsConnection);
   const instances: Array<{
     app: FastifyInstance;
     pool: ReturnType<typeof createTestPool>;
@@ -47,7 +54,13 @@ export async function startHarness(): Promise<Harness> {
       logger: false,
       readinessChecks: [],
       docs: true,
-      services: { db: createDb(pool), redis, appOrigin: APP_ORIGIN },
+      services: {
+        db: createDb(pool),
+        redis,
+        jobs,
+        appOrigin: APP_ORIGIN,
+        vapidPublicKey: TEST_VAPID_PUBLIC_KEY,
+      },
     });
     instances.push({ app, pool, redis });
     return app;
@@ -62,6 +75,8 @@ export async function startHarness(): Promise<Harness> {
     db: createDb(pool),
     pool,
     redis,
+    jobs,
+    redisUrl,
     startInstance,
     stop: async () => {
       for (const instance of instances) {
@@ -69,6 +84,8 @@ export async function startHarness(): Promise<Harness> {
         await instance.pool.end();
         instance.redis.disconnect();
       }
+      await jobs.close();
+      jobsConnection.disconnect();
       await pool.end();
       redis.disconnect();
       await Promise.all([database?.stop(), redisContainer?.stop()]);

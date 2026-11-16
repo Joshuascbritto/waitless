@@ -22,6 +22,11 @@ export type QueueEventListener = (event: QueueEvent) => void;
 
 export const channelFor = (queueId: string) => `waitless:queue:${queueId}`;
 
+/** Publish without a subscriber, for processes that only announce changes (the worker). */
+export async function publishQueueEvent(redis: Redis, event: QueueEvent): Promise<void> {
+  await redis.publish(channelFor(event.queueId), JSON.stringify(event));
+}
+
 export class QueueEvents {
   readonly #publisher: Redis;
   readonly #subscriber: Redis;
@@ -41,7 +46,7 @@ export class QueueEvents {
   }
 
   async publish(event: QueueEvent): Promise<void> {
-    await this.#publisher.publish(channelFor(event.queueId), JSON.stringify(event));
+    await publishQueueEvent(this.#publisher, event);
   }
 
   /** Starts listening to one queue. Resolves once Redis confirmed the subscription. */

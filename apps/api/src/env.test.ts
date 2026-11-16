@@ -46,4 +46,19 @@ describe("loadEnv", () => {
     expect(message).toMatch(/REDIS_URL/);
     expect(message).not.toContain("s3cr3t-password");
   });
+
+  it("requires the VAPID keys together, and treats empty values as unset", () => {
+    expect(
+      loadEnv({ ...valid, VAPID_PUBLIC_KEY: "", VAPID_PRIVATE_KEY: "" }).VAPID_PUBLIC_KEY,
+    ).toBe(undefined);
+    expect(() => loadEnv({ ...valid, VAPID_PUBLIC_KEY: "pub" })).toThrow(/VAPID/);
+    expect(
+      loadEnv({
+        ...valid,
+        VAPID_PUBLIC_KEY: "pub",
+        VAPID_PRIVATE_KEY: "priv",
+        VAPID_SUBJECT: "mailto:ops@example.com",
+      }).VAPID_SUBJECT,
+    ).toBe("mailto:ops@example.com");
+  });
 });
