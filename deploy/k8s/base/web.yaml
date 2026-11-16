@@ -1,0 +1,76 @@
+# Next.js (standalone server). Server components call the API inside the
+# cluster; browsers reach both through the same origin via the Ingress.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/name: web
+    waitless.dev/stage: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: waitless-web
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: API_ORIGIN
+              value: http://api:3001
+            - name: APP_ORIGIN
+              valueFrom: { configMapKeyRef: { name: waitless-config, key: APP_ORIGIN } }
+          readinessProbe:
+            httpGet: { path: /login, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /login, port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          volumeMounts:
+            # Next writes its fetch/image cache here; the rest of the filesystem is read-only.
+            - name: next-cache
+              mountPath: /app/apps/web/.next/cache
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: next-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/name: web
+    waitless.dev/stage: app
+spec:
+  selector:
+    app.kubernetes.io/name: web
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

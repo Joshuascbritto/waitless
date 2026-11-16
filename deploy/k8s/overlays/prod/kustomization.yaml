@@ -1,0 +1,100 @@
+# Production demo: one VPS running k3s (Traefik + cert-manager), Postgres and
+# Redis in-cluster. Setup and secrets: deploy/k8s/README.md.
+#
+# The public host lives in settings.env, the only file to edit for a new
+# domain; replacements copy it into the Ingress and APP_ORIGIN.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Base, component and generated secrets all go to the same namespace.
+namespace: waitless
+resources:
+  - ../../base
+  - service-account.yaml
+components:
+  - ../../components/in-cluster-data
+images:
+  # release.yml pins newTag to the commit SHA before deploying.
+  - name: waitless-api
+    newName: ghcr.io/joshuascbritto/waitless-api
+    newTag: main
+  - name: waitless-web
+    newName: ghcr.io/joshuascbritto/waitless-web
+    newTag: main
+configMapGenerator:
+  # Build-time input only: dropped from the output (local-config).
+  - name: deploy-settings
+    envs:
+      - settings.env
+    options:
+      disableNameSuffixHash: true
+      annotations:
+        config.kubernetes.io/local-config: "true"
+# Written by release.yml from GitHub Actions secrets; never committed.
+# Templates: *.env.example next to this file.
+secretGenerator:
+  - name: waitless-secrets
+    envs:
+      - secrets.env
+    options:
+      labels:
+        waitless.dev/stage: infra
+  - name: postgres-bootstrap
+    envs:
+      - postgres.env
+    options:
+      labels:
+        waitless.dev/stage: infra
+  # GHCR pull credentials (the repository is private): a read:packages token.
+  - name: ghcr-pull
+    type: kubernetes.io/dockerconfigjson
+    files:
+      - .dockerconfigjson=ghcr.dockerconfigjson
+    options:
+      labels:
+        waitless.dev/stage: infra
+patches:
+  - target:
+      kind: ConfigMap
+      name: waitless-config
+    patch: |-
+      - op: replace
+        path: /data/APP_ORIGIN
+        value: https://HOST
+      # The public demo documents its API (SPEC §11).
+      - op: replace
+        path: /data/API_DOCS
+        value: "true"
+  - target:
+      kind: Ingress
+      name: waitless
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          cert-manager.io/cluster-issuer: letsencrypt
+          # Plain HTTP only redirects to HTTPS (middleware from cluster/).
+          traefik.ingress.kubernetes.io/router.middlewares: kube-system-redirect-https@kubernetescrd
+      - op: add
+        path: /spec/tls
+        value:
+          - hosts: [HOST]
+            secretName: waitless-tls
+      - op: add
+        path: /spec/rules/0/host
+        value: HOST
+replacements:
+  - source:
+      kind: ConfigMap
+      name: deploy-settings
+      fieldPath: data.HOST
+    targets:
+      - select: { kind: Ingress, name: waitless }
+        fieldPaths:
+          - spec.rules.0.host
+          - spec.tls.0.hosts.0
+      - select: { kind: ConfigMap, name: waitless-config }
+        fieldPaths:
+          - data.APP_ORIGIN
+        options:
+          delimiter: /
+          index: 2

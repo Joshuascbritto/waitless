@@ -10,7 +10,7 @@ import { runMigrations } from "./migrate.ts";
 
 const IMAGE = "postgres:18.7-alpine";
 const INIT_SCRIPT = fileURLToPath(
-  new URL("../../../deploy/docker/postgres/initdb/10-roles.sh", import.meta.url),
+  new URL("../../../deploy/postgres/initdb/10-roles.sh", import.meta.url),
 );
 
 export interface TestDatabase {

@@ -2,7 +2,8 @@
 # Creates the two application roles (SPEC §9). Runs as the Postgres superuser:
 #   - docker compose: automatically, from /docker-entrypoint-initdb.d, on an EMPTY volume only
 #   - Testcontainers: same mechanism, copied into the test container
-#   - Kubernetes (Phase 6): a one-off superuser Job
+#   - Kubernetes: a one-off superuser Job (deploy/k8s), from the ConfigMap
+#     that deploy/postgres/kustomization.yaml generates from this file
 # Migrations can't do this: they run as waitless_owner, which can't create roles.
 # Idempotent, so it is safe to run again.
 set -euo pipefail

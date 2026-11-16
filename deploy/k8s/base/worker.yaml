@@ -1,0 +1,67 @@
+# BullMQ worker: notifications, auto no-show, daily retention (SPEC §8). Same
+# image as the API, other entrypoint. No HTTP port, so no HTTP probes; the
+# metrics port answering is the liveness signal.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  labels:
+    app.kubernetes.io/name: worker
+    waitless.dev/stage: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9464"
+        prometheus.io/path: /metrics
+    spec:
+      # BullMQ's close() waits for running jobs; unfinished ones retry elsewhere.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: waitless-api
+          command: ["node", "dist/worker.js"]
+          ports:
+            - name: metrics
+              containerPort: 9464
+          envFrom:
+            - configMapRef:
+                name: waitless-config
+          env:
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: waitless-secrets, key: DATABASE_URL } }
+            - name: REDIS_URL
+              valueFrom: { secretKeyRef: { name: waitless-secrets, key: REDIS_URL } }
+            - name: VAPID_PUBLIC_KEY
+              valueFrom:
+                { secretKeyRef: { name: waitless-secrets, key: VAPID_PUBLIC_KEY, optional: true } }
+          livenessProbe:
+            tcpSocket: { port: metrics }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 320Mi }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

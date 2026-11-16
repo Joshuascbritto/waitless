@@ -24,7 +24,7 @@ services:
       - pgdata:/var/lib/postgresql
       # Init scripts run only when the data volume is empty. After changing
       # them: `docker compose down -v` (deletes local data) and start again.
-      - ./deploy/docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
+      - ./deploy/postgres/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -83,6 +83,8 @@ services:
       # Requests arrive through Caddy on the private Docker network.
       TRUST_PROXY: uniquelocal
       API_DOCS: "true"
+      # Prometheus /metrics, inside the Docker network only (not published).
+      METRICS_PORT: "9464"
       # Web Push (optional): `pnpm vapid:generate`, then put the keys in .env.
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}

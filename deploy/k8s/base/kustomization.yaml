@@ -1,0 +1,26 @@
+# Waitless on Kubernetes (SPEC §14). Overlays add secrets, images, the
+# database (in-cluster component or managed) and the public host.
+#
+# Every resource carries `waitless.dev/stage`, which deploy.sh uses to apply
+# in order: infra → bootstrap (roles) → migrate → app. New code never starts
+# before the schema it needs exists.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: waitless
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: waitless
+resources:
+  - namespace.yaml
+  - config.yaml
+  - ../../postgres
+  - jobs.yaml
+  - api.yaml
+  - worker.yaml
+  - web.yaml
+  - ingress.yaml
+  - demo-reset.yaml
+# Placeholder names; overlays point them at real images and tags.
+images:
+  - name: waitless-api
+  - name: waitless-web

@@ -1,0 +1,13 @@
+# The role bootstrap script as a ConfigMap, for the Kubernetes Job that runs
+# it (deploy/k8s/base/jobs.yaml). Its own kustomization because Kustomize only
+# reads files inside a kustomization's directory, and the script also serves
+# docker compose and Testcontainers from here (initdb/).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+configMapGenerator:
+  - name: postgres-roles
+    files:
+      - initdb/10-roles.sh
+generatorOptions:
+  labels:
+    waitless.dev/stage: bootstrap

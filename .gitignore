@@ -25,3 +25,9 @@ test-results/
 .DS_Store
 *.log
 .idea/
+
+# Kubernetes prod secrets (templates: *.env.example)
+deploy/k8s/overlays/prod/*.env
+deploy/k8s/overlays/prod/ghcr.dockerconfigjson
+!deploy/k8s/overlays/prod/settings.env
+deploy/k8s/overlays/release/

@@ -1,0 +1,20 @@
+# Non-secret settings shared by the API, worker and jobs. Secrets
+# (DATABASE_URL, REDIS_URL, MIGRATION_DATABASE_URL, VAPID keys) come from the
+# `waitless-secrets` Secret each overlay generates. Every key: .env.example.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: waitless-config
+  labels:
+    waitless.dev/stage: infra
+data:
+  NODE_ENV: production
+  LOG_LEVEL: info
+  API_HOST: 0.0.0.0
+  API_PORT: "3001"
+  METRICS_PORT: "9464"
+  # Requests reach the API through exactly one proxy (the ingress controller).
+  TRUST_PROXY: "1"
+  API_DOCS: "false"
+  # Overlays set the public origin (CSRF Origin check, QR posters).
+  APP_ORIGIN: http://localhost

@@ -1,0 +1,28 @@
+# Same origin for web and API (ADR-0007): /api goes to the API, the rest to
+# Next.js. SSE needs the proxy not to buffer or time out long responses;
+# Traefik (k3s's default) doesn't buffer unless a buffering middleware is
+# attached, and has no response timeout by default. The API sends a heartbeat
+# every 15 s, so idle timeouts never close a stream.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: waitless
+  labels:
+    waitless.dev/stage: app
+spec:
+  ingressClassName: traefik
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port: { name: http }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port: { name: http }

@@ -1,0 +1,23 @@
+# k3s installs Traefik from a Helm chart; HelmChartConfig overrides its values.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      spec:
+        # Keep the client's IP (no SNAT): rate limits key on it (SPEC §9).
+        externalTrafficPolicy: Local
+---
+# Referenced by the app Ingress: plain HTTP requests redirect to HTTPS.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-https
+  namespace: kube-system
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true

@@ -1,0 +1,9 @@
+# One-time, cluster-wide setup for the prod VPS (k3s), applied once after
+# installing cert-manager: `kubectl apply -k deploy/k8s/overlays/prod/cluster`.
+# Kept apart from the app overlay because these objects live outside the
+# waitless namespace (and Kustomize would otherwise move them into it).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - cluster-issuer.yaml
+  - traefik.yaml

@@ -1,0 +1,8 @@
+# Postgres and Redis inside the cluster, for a single-VPS demo and local
+# k3d. A bigger deployment drops this component and points the secrets at
+# managed services; nothing else changes.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - postgres.yaml
+  - redis.yaml

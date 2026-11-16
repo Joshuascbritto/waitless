@@ -1,0 +1,40 @@
+# Local cluster (k3d), built from local images: see deploy/k8s/README.md.
+# Open http://localhost:8080 (k3d maps it to Traefik on port 80).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Base, component and generated secrets all go to the same namespace.
+namespace: waitless
+resources:
+  - ../../base
+components:
+  - ../../components/in-cluster-data
+images:
+  # Imported with `k3d image import`; a non-"latest" tag means pull only if missing.
+  - name: waitless-api
+    newName: waitless-api
+    newTag: local
+  - name: waitless-web
+    newName: waitless-web
+    newTag: local
+# Throwaway local credentials, the same defaults docker-compose uses.
+secretGenerator:
+  - name: waitless-secrets
+    envs:
+      - secrets.local.env
+  - name: postgres-bootstrap
+    envs:
+      - postgres.local.env
+generatorOptions:
+  labels:
+    waitless.dev/stage: infra
+patches:
+  - target:
+      kind: ConfigMap
+      name: waitless-config
+    patch: |-
+      - op: replace
+        path: /data/APP_ORIGIN
+        value: http://localhost:8080
+      - op: replace
+        path: /data/API_DOCS
+        value: "true"
