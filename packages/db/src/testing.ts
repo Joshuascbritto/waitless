@@ -50,14 +50,18 @@ export async function startTestDatabase(): Promise<TestDatabase> {
  * clients, which can be before their sockets finish closing; stopping the
  * container right after makes Postgres send 57P01 (admin shutdown) to a client
  * that no longer has an error listener, and Vitest reports it as unhandled.
- * Only that teardown error is swallowed; anything else is rethrown.
+ * An idle client's error is also re-emitted on the pool itself (with
+ * `err.client` set), so both get the listener. Only that teardown error is
+ * swallowed; anything else is rethrown.
  */
 export function createTestPool(connectionString: string, max = 10): pg.Pool {
   const pool = new pg.Pool({ connectionString, max });
+  const ignoreAdminShutdown = (error: Error & { code?: string }) => {
+    if (error.code !== "57P01") throw error;
+  };
+  pool.on("error", ignoreAdminShutdown);
   pool.on("connect", (client) => {
-    client.on("error", (error: Error & { code?: string }) => {
-      if (error.code !== "57P01") throw error;
-    });
+    client.on("error", ignoreAdminShutdown);
   });
   return pool;
 }
