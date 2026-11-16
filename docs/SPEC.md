@@ -242,7 +242,7 @@ CREATE POLICY tenant_isolation ON tickets
 `app_current_tenant_id()` is `nullif(current_setting('app.tenant_id', true), '')::uuid`. On a pooled connection where an earlier transaction set the value, `current_setting` returns `''` rather than NULL, and a bare `''::uuid` cast would raise an error instead of matching zero rows.
 
 - Two DB roles: `waitless_owner` (owns tables, runs migrations) and `waitless_app` (what the API and worker use, no `BYPASSRLS`). Because of `FORCE`, even the owner is filtered when it queries.
-- **Roles are created outside the migrations**, by a superuser bootstrap script (`deploy/docker/postgres/init/*.sql` mounted into the Postgres container's `docker-entrypoint-initdb.d`, and a one-off superuser Job in k8s). Migrations run as `waitless_owner`, which can't create roles, including itself.
+- **Roles are created outside the migrations**, by one idempotent superuser bootstrap script, `deploy/postgres/initdb/10-roles.sh`: mounted into the Postgres container's `docker-entrypoint-initdb.d` in docker compose and Testcontainers, and run by a one-off superuser Job in Kubernetes (which also works against a managed Postgres). Migrations run as `waitless_owner`, which can't create roles, including itself.
 - `withTenant(tenantId, fn)`: `BEGIN; SELECT set_config('app.tenant_id', $1, true); ... COMMIT`. With no tenant set, `current_setting(..., true)` returns NULL → zero rows. **Fail closed.**
 - `withUser(userId, fn)`: same pattern with `app.user_id`. Used only to read the caller's own `memberships`.
 - **`memberships` policy is dual-key**, because it's read before any tenant context exists (the membership check, `/api/auth/me`):
@@ -333,14 +333,16 @@ Generate an OpenAPI document from the zod schemas (`fastify-type-provider-zod` o
 
 - **Dockerfiles**: multi-stage, non-root user, pnpm `deploy` for slim images. Images: `waitless-web`, `waitless-api` (the worker uses the api image with `CMD node dist/worker.js`).
 - **docker-compose.yml** (dev): postgres, redis, mailpit. Optional `--profile full` that also runs web + 2× api + worker + Caddy, to test the prod-like routing locally.
-- **Kubernetes** (`deploy/k8s`, Kustomize):
-  - `base/`: Deployments for web, api (replicas: 2), worker; Services; Ingress (`/api` → api, `/` → web, with SSE-friendly timeouts and buffering off); ConfigMap; Secret templates (no real values); PodDisruptionBudget for api; liveness and readiness probes (`/api/health/live`, `/api/health/ready` checking DB + Redis); resource requests and limits.
-  - Role bootstrap: a one-off superuser `Job` that creates `waitless_owner` / `waitless_app` if missing (§9).
-  - Migrations: a `Job` (or init container) using the `waitless_owner` credentials.
-  - `overlays/local` (kind or k3d) and `overlays/prod` (VPS running k3s + Traefik + cert-manager, or managed Postgres/Redis).
-  - CronJobs: demo reset, PII cleanup.
-- **GitHub Actions**: `ci.yml` (install → lint → typecheck → unit → integration → e2e → build) on PRs; `release.yml` on `main` builds and pushes images to GHCR tagged with the git SHA, then deploys (kubectl/kustomize with a kubeconfig secret).
-- **Observability (light)**: pino JSON logs, `/api/metrics` Prometheus endpoint (`prom-client`) with SSE connection gauge, tickets created counter and call-next latency histogram. Mention in the README; no Grafana stack required.
+- **Kubernetes** (`deploy/k8s`, Kustomize; runbook in `deploy/k8s/README.md`, decision in ADR-0008):
+  - `base/`: Deployments for web, api (replicas: 2, spread across nodes, `maxUnavailable: 0`), worker; Services; Ingress (`/api` → api, `/` → web; Traefik doesn't buffer responses, and the 15 s SSE heartbeat keeps streams alive past idle timeouts); ConfigMap; PodDisruptionBudget for api; startup, readiness and liveness probes (`/api/health/live`, `/api/health/ready` checking DB + Redis; the worker's liveness is its metrics port); resource requests and memory limits; non-root, read-only root filesystem, all capabilities dropped.
+  - Role bootstrap: a one-off superuser `Job` running the same `deploy/postgres/initdb/10-roles.sh` as compose (via a generated ConfigMap), so it also works against a managed Postgres (§9).
+  - Migrations: a `Job` using the `waitless_owner` credentials.
+  - Rollout order: every resource carries a `waitless.dev/stage` label and `deploy/k8s/deploy.sh` applies `infra` → `bootstrap` → `migrate` → `app`, waiting for each, so new code never runs against an old schema. Migrations must therefore stay backward compatible with the previous release (expand, then contract).
+  - `components/in-cluster-data`: Postgres and Redis StatefulSets with volumes (Redis with AOF and `noeviction`, as BullMQ requires). Used by both overlays; a managed setup drops it and changes only the secrets.
+  - `overlays/local` (k3d, local images, throwaway credentials) and `overlays/prod` (VPS running k3s + Traefik + cert-manager; GHCR pull secret; the public host set once in `settings.env`). Cluster-wide pieces (ClusterIssuer, Traefik settings, HTTPS redirect) live in `overlays/prod/cluster` and are applied once.
+  - CronJob: demo reset (03:00 `America/Bahia`). PII cleanup stays a BullMQ repeatable job in the worker (§5), so it runs the same under compose and Kubernetes.
+- **GitHub Actions**: `ci.yml` (install → lint → typecheck → unit → integration → build; plus rendering every overlay and validating it with kubeconform; e2e in Phase 7) on PRs and `main`; `release.yml` runs after CI succeeds on `main`: builds and pushes both images to GHCR tagged with the git SHA (and `main`), then deploys that SHA with `deploy.sh`. Deploying is gated on the `DEPLOY_ENABLED` repository variable and the `production` environment's secrets.
+- **Observability (light)**: pino JSON logs; Prometheus metrics (`prom-client`) on a separate internal port (`METRICS_PORT`, 9464), never routed by the Ingress, since metrics reveal traffic patterns. API: SSE connection gauge, tickets created counter (by source), call-next latency histogram (by outcome), process metrics. Worker: jobs processed (by queue and result). Pods carry `prometheus.io/*` scrape annotations. Mention in the README; no Grafana stack required.
 
 ## 15. README and ADRs
 
@@ -364,6 +366,7 @@ Generate an OpenAPI document from the zod schemas (`fastify-type-provider-zod` o
 - 0005 Web Push instead of WhatsApp/SMS for the MVP
 - 0006 Session cookies over JWT
 - 0007 Same-origin routing for web and API
+- 0008 Deployment: k3s on one VPS with Kustomize
 
 **Template**
 ```markdown

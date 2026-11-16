@@ -78,13 +78,20 @@ pnpm build                  # packages → dist/, api → dist/, web → .next/
 pnpm db:generate            # after editing packages/db/src/schema.ts: new migration from the diff
                             # (RLS and other hand-written SQL: pnpm --filter @waitless/db exec drizzle-kit generate --custom --name=<name>)
 pnpm vapid:generate         # Web Push keys (JSON); put them in .env as VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY
-docker compose down -v      # wipes local data; needed after changing deploy/docker/postgres/initdb/*
+docker compose down -v      # wipes local data; needed after changing deploy/postgres/initdb/*
 docker compose --profile full up -d --build
                             # prod-like stack on http://localhost:8080: migrations, web, 2 API replicas, worker, Caddy
 docker compose --profile full rm -sf migrate api-1 api-2 worker web caddy   # stop it, keep the dev services
 
 pnpm db:seed                # demo businesses + 30 days of history (owner@demo.waitless.dev / demo1234)
 pnpm db:seed --reset-demo   # delete the demo tenants and users, then seed again
+
+# Kubernetes (deploy/k8s/README.md): local cluster with k3d
+docker build -f deploy/docker/api.Dockerfile -t waitless-api:local .   # same for web.Dockerfile → waitless-web:local
+k3d cluster create waitless --image rancher/k3s:v1.37.2-k3s1 --agents 1 -p "8080:80@loadbalancer" --wait
+k3d image import waitless-api:local waitless-web:local -c waitless
+deploy/k8s/deploy.sh deploy/k8s/overlays/local   # staged: infra → roles → migrations → app; http://localhost:8080
+k3d cluster delete waitless
 
 # Not yet available (planned):
 pnpm test:e2e               # Phase 7: Playwright

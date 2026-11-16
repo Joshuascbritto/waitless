@@ -72,11 +72,11 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 
 ## Phase 6 — Deploy
 - [x] Multi-stage Dockerfiles (web, api), non-root (done early, in Phase 3, for the compose `full` profile)
-- [ ] Kustomize base + overlays (local kind/k3d, prod)
-- [ ] Migration Job; probes; resources; PDB; Ingress with SSE-friendly settings
-- [ ] CronJobs: demo reset, PII cleanup
-- [ ] `release.yml`: build → push to GHCR → deploy
-- [ ] Prometheus `/api/metrics`
+- [x] Kustomize base + overlays (local k3d, prod), in-cluster Postgres/Redis as a component
+- [x] Role bootstrap + migration Jobs applied in stages before the app (`deploy.sh`); probes; resources; PDB; Ingress with SSE-friendly settings
+- [x] CronJob: demo reset (PII cleanup stays a BullMQ job in the worker, see SPEC §14)
+- [x] `release.yml`: build → push to GHCR → deploy (deploy gated until a cluster exists)
+- [x] Prometheus metrics on an internal port (9464), not routed by the Ingress
 - [ ] Public demo URL live with HTTPS
 
 ## Phase 7 — Portfolio polish
