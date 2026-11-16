@@ -20,6 +20,7 @@ const db = createDb(pool, {
 const app = await buildApp({
   logger: loggerOptions(env.LOG_LEVEL),
   trustProxy: env.TRUST_PROXY,
+  docs: env.API_DOCS,
   services: { db, redis, appOrigin: env.APP_ORIGIN },
   readinessChecks: [
     { name: "postgres", check: () => pingDatabase(pool) },

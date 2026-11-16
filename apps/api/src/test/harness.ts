@@ -32,6 +32,7 @@ export async function startHarness(): Promise<Harness> {
   const app = await buildApp({
     logger: false,
     readinessChecks: [],
+    docs: true,
     services: { db, redis, appOrigin: APP_ORIGIN },
   });
 

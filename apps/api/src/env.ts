@@ -28,6 +28,11 @@ const EnvSchema = z.object({
   /** The web app's origin: the only one allowed to make state-changing requests. */
   APP_ORIGIN: z.url({ protocol: /^https?$/ }).transform((url) => new URL(url).origin),
   TRUST_PROXY: TrustProxySchema.default(false),
+  /** Serve Swagger UI at /api/docs. On in development and the public demo, off otherwise. */
+  API_DOCS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
   REDIS_URL: z.url({ protocol: /^rediss?$/ }),
 });

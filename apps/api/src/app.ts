@@ -2,16 +2,24 @@ import { randomUUID } from "node:crypto";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
+import swagger from "@fastify/swagger";
+import swaggerUi from "@fastify/swagger-ui";
 import type { Db } from "@waitless/db";
 import Fastify, { type FastifyInstance, type FastifyServerOptions, LogController } from "fastify";
-import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
+import {
+  jsonSchemaTransform,
+  serializerCompiler,
+  validatorCompiler,
+} from "fastify-type-provider-zod";
 import type { Redis } from "ioredis";
 import { registerAuth } from "./plugins/auth.ts";
 import { registerErrorHandlers } from "./plugins/error-handler.ts";
 import { registerOriginCheck } from "./plugins/origin-check.ts";
+import { adminRoutes } from "./routes/admin.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { healthRoutes, type ReadinessCheck } from "./routes/health.ts";
-import { adminRoutes, tenantRoutes } from "./routes/tenants.ts";
+import { publicRoutes } from "./routes/public.ts";
+import { tenantRoutes } from "./routes/tenants.ts";
 
 /** Real dependencies behind the product routes. */
 export interface Services {
@@ -28,6 +36,8 @@ export interface AppDeps {
   readinessChecks: ReadinessCheck[];
   readinessTimeoutMs?: number;
   trustProxy?: NonNullable<FastifyServerOptions["trustProxy"]>;
+  /** Serve the OpenAPI document and Swagger UI at /api/docs (dev and demo only). */
+  docs?: boolean;
   /**
    * Product routes (auth, tenants, admin). `server.ts` always passes them.
    * Unit tests of cross-cutting behavior (health, errors, request ids) leave
@@ -72,6 +82,25 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(helmet);
   registerErrorHandlers(app);
 
+  if (deps.docs) {
+    // Must be registered before the routes it documents.
+    await app.register(swagger, {
+      openapi: {
+        info: {
+          title: "Waitless API",
+          version: "0.1.0",
+          description: "Virtual queue for small businesses. Errors are application/problem+json.",
+        },
+      },
+      transform: jsonSchemaTransform,
+    });
+    await app.register(swaggerUi, {
+      routePrefix: "/api/docs",
+      // Swagger UI ships its own CSP for its static assets; helmet's default would block them.
+      staticCSP: true,
+    });
+  }
+
   await app.register(healthRoutes, {
     prefix: "/api/health",
     checks: deps.readinessChecks,
@@ -94,7 +123,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
     await app.register(authRoutes, { prefix: "/api/auth", db: services.db });
     await app.register(tenantRoutes, { prefix: "/api/tenants", db: services.db });
-    await app.register(adminRoutes, { prefix: "/api/admin/:tenantSlug" });
+    await app.register(publicRoutes, { prefix: "/api/public", db: services.db });
+    await app.register(adminRoutes, { prefix: "/api/admin/:tenantSlug", db: services.db });
   }
 
   return app;
