@@ -1,0 +1,12 @@
+# Build context for deploy/docker/*.Dockerfile: sources only, never local
+# installs, builds or secrets.
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+.git
+.env
+.env.*
+!.env.example
+*.log

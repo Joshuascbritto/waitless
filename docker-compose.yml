@@ -1,5 +1,9 @@
 # Local development dependencies. App processes run on the host with `pnpm dev`.
 # Ports bind to 127.0.0.1 only, so the database isn't reachable from your LAN.
+#
+# `docker compose --profile full up --build` also runs the app the way
+# production does: migrations, web, TWO API replicas and Caddy routing
+# /api to them, all on http://localhost:8080.
 name: waitless
 
 services:
@@ -48,6 +52,70 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # --- Profile "full": the app in containers, prod-like ------------------------
+
+  migrate:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: deploy/docker/api.Dockerfile
+    image: waitless-api:local
+    # Applies pending migrations as the table owner, then exits.
+    command: ["node", "node_modules/@waitless/db/dist/migrate.js"]
+    environment:
+      MIGRATION_DATABASE_URL: postgres://waitless_owner:${WAITLESS_OWNER_PASSWORD:-owner}@postgres:5432/${POSTGRES_DB:-waitless}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api-1: &api
+    profiles: [full]
+    image: waitless-api:local
+    pull_policy: never
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://waitless_app:${WAITLESS_APP_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-waitless}
+      REDIS_URL: redis://redis:6379
+      APP_ORIGIN: http://localhost:8080
+      # Requests arrive through Caddy on the private Docker network.
+      TRUST_PROXY: uniquelocal
+      API_DOCS: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  api-2:
+    <<: *api
+
+  web:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: deploy/docker/web.Dockerfile
+    image: waitless-web:local
+    environment:
+      # Server components call the API through Caddy, like the browser does.
+      API_ORIGIN: http://caddy:8080
+    depends_on:
+      - api-1
+      - api-2
+
+  caddy:
+    profiles: [full]
+    image: caddy:2.11.9-alpine
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./deploy/docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - api-1
+      - api-2
+      - web
 
 volumes:
   pgdata:

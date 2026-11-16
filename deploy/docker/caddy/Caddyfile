@@ -1,0 +1,22 @@
+# Local stand-in for the production ingress (docker compose --profile full).
+# Same origin for everything: /api/* goes to the API replicas, the rest to web.
+{
+	admin off
+}
+
+:8080 {
+	handle /api/* {
+		# Two replicas, round robin: consecutive requests (and SSE streams) land
+		# on different instances, so Redis fan-out is exercised for real.
+		reverse_proxy api-1:3001 api-2:3001 {
+			lb_policy round_robin
+			# Never buffer: Server-Sent Events must reach the browser immediately.
+			flush_interval -1
+			health_uri /api/health/ready
+			health_interval 5s
+		}
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}
