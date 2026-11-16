@@ -171,6 +171,8 @@ export const tickets = pgTable(
       foreignColumns: [queues.tenantId, queues.id],
     }).onDelete("cascade"),
     index("tickets_queue_status_sort_idx").on(t.queueId, t.status, t.sortKey),
+    // Metrics (SPEC §10) filter a tenant's tickets by join time.
+    index("tickets_tenant_joined_at_idx").on(t.tenantId, t.joinedAt),
     index("tickets_waiting_order_idx")
       .on(t.queueId, t.sortKey, t.id)
       .where(sql`${t.status} = 'waiting'`),

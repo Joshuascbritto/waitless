@@ -1,0 +1,1 @@
+CREATE INDEX "tickets_tenant_joined_at_idx" ON "tickets" USING btree ("tenant_id","joined_at");

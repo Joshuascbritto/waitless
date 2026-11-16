@@ -6,6 +6,7 @@ export {
   NotFoundError,
   UnauthorizedError,
 } from "./errors.ts";
+export * from "./metrics.ts";
 export {
   PROBLEM_CONTENT_TYPE,
   type ProblemDetails,

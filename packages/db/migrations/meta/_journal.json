@@ -29,6 +29,13 @@
       "when": 1794841715125,
       "tag": "0003_one_active_ticket_per_device",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794851754100,
+      "tag": "0004_tickets_tenant_joined_at_idx",
+      "breakpoints": true
     }
   ]
 }
