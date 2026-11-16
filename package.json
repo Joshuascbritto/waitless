@@ -15,6 +15,7 @@
     "format": "biome check --write .",
     "db:generate": "pnpm --filter @waitless/db db:generate",
     "db:migrate": "pnpm --filter @waitless/db db:migrate",
+    "db:seed": "turbo run build --filter=@waitless/api^... --output-logs=errors-only && pnpm --filter @waitless/api seed",
     "vapid:generate": "pnpm --filter @waitless/api vapid:generate"
   },
   "devDependencies": {

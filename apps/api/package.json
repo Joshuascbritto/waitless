@@ -11,7 +11,9 @@
     "test": "vitest run",
     "dev:worker": "node --watch --env-file-if-exists=../../.env src/worker.ts",
     "start:worker": "node dist/worker.js",
-    "vapid:generate": "web-push generate-vapid-keys --json"
+    "vapid:generate": "web-push generate-vapid-keys --json",
+    "seed": "node --env-file-if-exists=../../.env src/seed.ts",
+    "start:seed": "node dist/seed.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
