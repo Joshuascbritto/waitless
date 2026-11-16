@@ -1,5 +1,5 @@
 # Let's Encrypt certificates via HTTP-01, through Traefik. Set `email` to an
-# address that should get expiry warnings before applying.
+# address that should get expiry warnings before applying (CHANGE ME).
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:

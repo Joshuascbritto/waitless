@@ -2,7 +2,7 @@
 
 **A virtual queue for small businesses.** Customers scan a QR code at the counter, join the line from their phone, watch their place update live, and get a push notification when it's their turn.
 
-**Live demo:** coming soon (the deployment is ready; see [Deployment](#deployment)) · **Demo login:** `owner@demo.waitless.dev` / `demo1234`
+**Live demo:** not hosted yet; the deployment is ready (see [Deployment](#deployment)), and it [runs locally](#run-locally) in three commands · **Demo login:** `owner@demo.waitless.dev` / `demo1234`
 
 ![A customer joins on a phone; the owner clicks "Call next"; the phone shows "It's your turn!" without reloading](docs/images/demo.gif)
 

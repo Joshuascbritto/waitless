@@ -41,6 +41,22 @@ Open http://localhost:8080 and log in as `owner@demo.waitless.dev` / `demo1234`.
 
 The `local` overlay's credentials are the same throwaway values docker compose uses.
 
+## Go-live checklist
+
+Everything is built, tested and pushed to GHCR on every green `main`; only the server is missing. When there is one, these are the only places to edit:
+
+| Where | What to change |
+|---|---|
+| [`overlays/prod/settings.env`](overlays/prod/settings.env) | `HOST`: the demo's domain (e.g. a subdomain of your site), with a DNS `A` record pointing at the VPS |
+| [`overlays/prod/cluster/cluster-issuer.yaml`](overlays/prod/cluster/cluster-issuer.yaml) | `email`: where Let's Encrypt sends expiry warnings |
+| `overlays/prod/secrets.env`, `overlays/prod/postgres.env` | Create from the `*.example` files next to them; strong passwords, VAPID keys (gitignored) |
+| `overlays/prod/ghcr.dockerconfigjson` | Image pull credentials (step 6 below), or make both GHCR packages public and skip the token |
+| GitHub → Settings → Secrets and variables → Actions | Variables `DEPLOY_ENABLED=true` and `DEMO_URL`; environment `production` with the four secrets listed under [Deploys from GitHub Actions](#deploys-from-github-actions) |
+| [`README.md`](../../README.md) (the "Live demo" line) | The public URL |
+| [`docs/ROADMAP.md`](../../docs/ROADMAP.md) | Tick "Public demo URL live with HTTPS" |
+
+Then follow the steps below once; after that, every green push to `main` deploys itself.
+
 ## Production (one VPS with k3s)
 
 One-time setup. Commands run on your machine unless they say otherwise.
@@ -50,7 +66,7 @@ One-time setup. Commands run on your machine unless they say otherwise.
 3. **cert-manager:** `kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.3/cert-manager.yaml`, then wait until `kubectl -n cert-manager get pods` shows it running.
 4. **Cluster settings:** put your email in `overlays/prod/cluster/cluster-issuer.yaml` (Let's Encrypt expiry warnings), then `kubectl apply -k deploy/k8s/overlays/prod/cluster`. This keeps client IPs (rate limits need them) and adds the HTTP → HTTPS redirect.
 5. **Secrets.** Copy `secrets.env.example` → `secrets.env` and `postgres.env.example` → `postgres.env` in `overlays/prod/` and fill in strong passwords (both files are gitignored; the passwords must match each other). For push notifications, add the output of `pnpm vapid:generate`.
-6. **Image pull secret.** The repository is private, so its GHCR images are too. Create a classic token with only `read:packages`, then write `overlays/prod/ghcr.dockerconfigjson` (gitignored):
+6. **Image pull secret.** GHCR packages start private even when the repository is public. Either make `waitless-api` and `waitless-web` public (each package's settings → Danger Zone → Change visibility) and write `{"auths":{}}` to `overlays/prod/ghcr.dockerconfigjson`, or create a classic token with only `read:packages` and write the file from it (gitignored):
 
    ```bash
    kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io \

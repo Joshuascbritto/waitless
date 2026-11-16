@@ -44,7 +44,8 @@ secretGenerator:
     options:
       labels:
         waitless.dev/stage: infra
-  # GHCR pull credentials (the repository is private): a read:packages token.
+  # GHCR pull credentials: a read:packages token, or {"auths":{}} once both
+  # packages are public (see deploy/k8s/README.md, step 6).
   - name: ghcr-pull
     type: kubernetes.io/dockerconfigjson
     files:

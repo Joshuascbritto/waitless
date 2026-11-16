@@ -77,7 +77,7 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [x] CronJob: demo reset (PII cleanup stays a BullMQ job in the worker, see SPEC §14)
 - [x] `release.yml`: build → push to GHCR → deploy (deploy gated until a cluster exists)
 - [x] Prometheus metrics on an internal port (9464), not routed by the Ingress
-- [ ] Public demo URL live with HTTPS
+- [ ] Public demo URL live with HTTPS (deferred until there is a VPS; what to edit: [go-live checklist](../deploy/k8s/README.md#go-live-checklist))
 
 ## Phase 7 — Portfolio polish
 - [x] Playwright e2e (two contexts) in CI, against the compose `full` stack
