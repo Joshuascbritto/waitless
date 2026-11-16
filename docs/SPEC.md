@@ -203,13 +203,13 @@ When a ticket is called, enqueue a BullMQ **delayed job** `auto-no-show` with de
 **Why SSE, not WebSocket** (ADR-0002): updates only flow server → client. Client actions are normal REST calls. SSE runs over plain HTTP, reconnects automatically, supports `Last-Event-ID`, passes through proxies and ingress without upgrade config, and is trivial to authenticate with the existing cookie.
 
 **Streams**
-- `GET /api/admin/:tenantSlug/queues/:queueId/stream` (session cookie): full board. Sends `snapshot` on connect, then `ticket.updated` / `ticket.created` events.
-- `GET /api/public/q/:tenantSlug/t/:token/stream` (no auth; the token is the capability): sends only `{ status, position, etaRange, displayCode, nowServing }` for that ticket. **Never** send other customers' names or tokens.
+- `GET /api/admin/:tenantSlug/queues/:queueId/stream` (session cookie): sends a `board` event with the **whole board** on connect and after every change. (Originally planned as incremental `ticket.updated` / `ticket.created` events; the refresh query already yields the full board, it is small, and the browser never has to merge partial updates. See ADR-0002.)
+- `GET /api/public/q/:tenantSlug/t/:token/stream` (no auth; the token is the capability): sends a `ticket` event with the same payload as the ticket GET (`status, position, etaRange, displayCode, nowServing` plus tenant and queue names). **Never** send other customers' names or tokens.
 
 **Fan-out**
-- On every state change, after the DB transaction commits, publish to Redis channel `waitless:queue:{queueId}` with payload `{ type, tenantId, ticketId, version }` (ids only, no PII). `tenantId` lets the receiving instance run its refresh query inside `withTenant`.
+- On every state change, after the DB transaction commits, publish to Redis channel `waitless:queue:{queueId}` with payload `{ type, tenantId, queueId, ticketId }` (ids only, no PII). No version number: subscribers always re-read the current state. `tenantId` lets the receiving instance run its refresh query inside `withTenant`.
 - Each API instance keeps **one** Redis subscription per queue that has at least one connected client (reference-counted; unsubscribe when the last client disconnects).
-- On a message, the instance runs **one** query to fetch the current ordered waiting list for that queue, then computes and pushes each connected client's personalized payload in memory. Cost is one query per event per instance, not one per client.
+- On a message, the instance runs **one** query to fetch the current ordered waiting list for that queue, then computes and pushes each connected client's personalized payload in memory. Cost is one query per event per instance, not one per client. While a refresh runs, further events only mark the queue dirty and trigger one follow-up refresh.
 - Heartbeat comment (`: ping`) every 15 s. Headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Clean up on `close`.
 - On reconnect, the client always gets a fresh `snapshot` (simpler than event replay; document this).
 

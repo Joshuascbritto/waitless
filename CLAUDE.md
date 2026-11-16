@@ -77,6 +77,9 @@ pnpm build                  # packages → dist/, api → dist/, web → .next/
 pnpm db:generate            # after editing packages/db/src/schema.ts: new migration from the diff
                             # (RLS and other hand-written SQL: pnpm --filter @waitless/db exec drizzle-kit generate --custom --name=<name>)
 docker compose down -v      # wipes local data; needed after changing deploy/docker/postgres/initdb/*
+docker compose --profile full up -d --build
+                            # prod-like stack on http://localhost:8080: migrations, web, 2 API replicas, Caddy
+docker compose --profile full rm -sf migrate api-1 api-2 web caddy   # stop it, keep the dev services
 
 # Not yet available (planned):
 pnpm db:seed                # Phase 5: demo tenants + 30 days of history

@@ -44,15 +44,15 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [x] ADR-0003 (SKIP LOCKED)
 
 ## Phase 3 — Real-time
-- [ ] SSE plugin: headers, heartbeat, cleanup, connection gauge
-- [ ] Redis pub/sub manager: ref-counted subscription per queue per instance
-- [ ] Publish after commit on every state change (ids only)
-- [ ] Admin board stream (snapshot + incremental events)
-- [ ] Customer ticket stream (personalized, redacted payload)
-- [ ] Replace polling in web with `EventSource` + auto-reconnect UI ("reconnecting…" badge)
-- [ ] docker compose `full` profile with 2 API replicas behind Caddy
-- [ ] **Test: cross-instance fan-out** (SPEC §12.4)
-- [ ] ADR-0002 (SSE), ADR-0004 (Redis fan-out)
+- [x] SSE plugin: headers, heartbeat, cleanup, connection gauge (in-memory; exported to Prometheus in Phase 6)
+- [x] Redis pub/sub manager: ref-counted subscription per queue per instance
+- [x] Publish after commit on every state change (ids only)
+- [x] Admin board stream (full board on connect and on every change; see ADR-0002)
+- [x] Customer ticket stream (personalized, redacted payload)
+- [x] Replace polling in web with `EventSource` + auto-reconnect UI ("reconnecting…" badge)
+- [x] docker compose `full` profile with 2 API replicas behind Caddy
+- [x] **Test: cross-instance fan-out** (SPEC §12.4)
+- [x] ADR-0002 (SSE), ADR-0004 (Redis fan-out)
 
 ## Phase 4 — Notifications and jobs
 - [ ] BullMQ setup; worker entrypoint `apps/api/src/worker.ts`
@@ -71,7 +71,7 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [ ] Seed script with 30 days of realistic history + "live" waiting tickets (SPEC §13)
 
 ## Phase 6 — Deploy
-- [ ] Multi-stage Dockerfiles (web, api), non-root
+- [x] Multi-stage Dockerfiles (web, api), non-root (done early, in Phase 3, for the compose `full` profile)
 - [ ] Kustomize base + overlays (local kind/k3d, prod)
 - [ ] Migration Job; probes; resources; PDB; Ingress with SSE-friendly settings
 - [ ] CronJobs: demo reset, PII cleanup
