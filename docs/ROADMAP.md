@@ -19,16 +19,16 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [x] README stub (title, one-liner, "work in progress")
 
 ## Phase 1 — Data model, tenancy and auth
-- [ ] Drizzle schema for all tables in SPEC §5; first migration
-- [ ] Superuser bootstrap script creating roles `waitless_owner` / `waitless_app` (compose `initdb.d`), outside the migrations
-- [ ] SQL migration: `ENABLE` + `FORCE ROW LEVEL SECURITY`, policies on every tenant-scoped table, dual-key policy on `memberships`
-- [ ] `withTenant(tenantId, fn)` with `set_config(..., true)` and `afterCommit` hooks; `withUser(userId, fn)` for membership reads
-- [ ] **Test: RLS isolation** (SPEC §12.2)
-- [ ] Register / login / logout / me; argon2id; hashed session ids; cookie settings; Origin check
-- [ ] Rate limiting on login (Redis store)
-- [ ] `POST /api/tenants` (creator becomes owner); membership check middleware for `/api/admin/:tenantSlug/*`
-- [ ] Web: login/register pages, tenant picker, empty admin layout
-- [ ] ADR-0001 (RLS), ADR-0006 (sessions), ADR-0007 (same-origin)
+- [x] Drizzle schema for all tables in SPEC §5; first migration
+- [x] Superuser bootstrap script creating roles `waitless_owner` / `waitless_app` (compose `initdb.d`), outside the migrations
+- [x] SQL migration: `ENABLE` + `FORCE ROW LEVEL SECURITY`, policies on every tenant-scoped table, dual-key policy on `memberships`
+- [x] `withTenant(tenantId, fn)` with `set_config(..., true)` and `afterCommit` hooks; `withUser(userId, fn)` for membership reads
+- [x] **Test: RLS isolation** (SPEC §12.2)
+- [x] Register / login / logout / me; argon2id; hashed session ids; cookie settings; Origin check
+- [x] Rate limiting on login (Redis store)
+- [x] `POST /api/tenants` (creator becomes owner); membership check middleware for `/api/admin/:tenantSlug/*`
+- [x] Web: login/register pages, tenant picker, empty admin layout
+- [x] ADR-0001 (RLS), ADR-0006 (sessions), ADR-0007 (same-origin)
 
 ## Phase 2 — Queue core (no real-time yet)
 - [ ] `packages/shared/queue`: state machine, `canTransition`, sort-key push-back, position, display code, ETA → **all unit-tested**

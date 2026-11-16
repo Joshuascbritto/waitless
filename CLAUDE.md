@@ -66,15 +66,18 @@ waitless/
 cp .env.example .env        # once; the API dev script loads it
 docker compose up -d        # Postgres, Redis, Mailpit (wait for "healthy": docker compose ps)
 pnpm install
+pnpm db:migrate             # apply migrations as waitless_owner (MIGRATION_DATABASE_URL)
 pnpm dev                    # web :3000 + api :3001 in watch mode (packages rebuild on change)
-pnpm test                   # Vitest in every package (via Turborepo)
+pnpm test                   # Vitest everywhere; db and api integration tests need Docker (Testcontainers)
 pnpm lint                   # Biome: lint + format check (Markdown excluded)
 pnpm format                 # Biome: apply formatting and safe fixes
 pnpm typecheck              # tsc --noEmit everywhere (web runs `next typegen` first)
 pnpm build                  # packages → dist/, api → dist/, web → .next/
+pnpm db:generate            # after editing packages/db/src/schema.ts: new migration from the diff
+                            # (RLS and other hand-written SQL: pnpm --filter @waitless/db exec drizzle-kit generate --custom --name=<name>)
+docker compose down -v      # wipes local data; needed after changing deploy/docker/postgres/initdb/*
 
 # Not yet available (planned):
-pnpm db:migrate             # Phase 1: run migrations
 pnpm db:seed                # Phase 5: demo tenants + 30 days of history
 pnpm test:e2e               # Phase 7: Playwright
 ```

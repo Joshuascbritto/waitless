@@ -61,7 +61,7 @@ Small businesses in Brazil (barbershops, clinics, pet shops, repair shops) still
 
 ## 5. Data model
 
-All tenant-scoped tables have `tenant_id uuid not null` and RLS enabled. Use `uuid` PKs generated with PostgreSQL 18's native `uuidv7()` (time-ordered, so they also work as a stable tie-breaker).
+All tenant-scoped tables have `tenant_id uuid not null` and RLS enabled. Use `uuid` PKs generated with PostgreSQL 18's native `uuidv7()` (time-ordered, so they also work as a stable tie-breaker). Child tables reference their parent with a composite foreign key `(tenant_id, parent_id)`: foreign key checks bypass RLS, so a plain `queue_id` reference would let a row of tenant A point at a queue of tenant B.
 
 ```sql
 tenants (                      -- NOT RLS-scoped (resolved by slug before tenant context exists)
@@ -79,7 +79,7 @@ memberships (                  -- RLS, dual-key policy: visible by tenant OR by 
 )
 
 sessions (                     -- NOT tenant-scoped
-  id text pk,                  -- random 256-bit, stored hashed (sha256)
+  id text pk,                  -- sha256 (hex) of a random 256-bit token; the token only lives in the cookie
   user_id uuid fk, expires_at timestamptz, created_at
 )
 
@@ -235,9 +235,11 @@ When a ticket is called, enqueue a BullMQ **delayed job** `auto-no-show` with de
 ALTER TABLE tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tickets FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON tickets
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  USING (tenant_id = app_current_tenant_id())
+  WITH CHECK (tenant_id = app_current_tenant_id());
 ```
+
+`app_current_tenant_id()` is `nullif(current_setting('app.tenant_id', true), '')::uuid`. On a pooled connection where an earlier transaction set the value, `current_setting` returns `''` rather than NULL, and a bare `''::uuid` cast would raise an error instead of matching zero rows.
 
 - Two DB roles: `waitless_owner` (owns tables, runs migrations) and `waitless_app` (what the API and worker use, no `BYPASSRLS`). Because of `FORCE`, even the owner is filtered when it queries.
 - **Roles are created outside the migrations**, by a superuser bootstrap script (`deploy/docker/postgres/init/*.sql` mounted into the Postgres container's `docker-entrypoint-initdb.d`, and a one-off superuser Job in k8s). Migrations run as `waitless_owner`, which can't create roles, including itself.
@@ -256,7 +258,7 @@ CREATE POLICY tenant_isolation ON tickets
 - **Cross-tenant maintenance** (seed, demo reset, PII cleanup): list tenants from the unscoped `tenants` table, then process each one inside its own `withTenant`. No role bypasses RLS. Every BullMQ job payload carries `tenantId`.
 
 **Auth**
-- Email + password, hashed with argon2id. Session id is random 256-bit, stored hashed. Cookie: `HttpOnly; Secure; SameSite=Lax; Path=/`. 14-day sliding expiry.
+- Email + password, hashed with argon2id. Session id is random 256-bit, stored hashed. Cookie: `__Host-waitless_session; HttpOnly; Secure; SameSite=Lax; Path=/`. 14-day sliding expiry, renewed only when less than half remains (ADR-0006).
 - CSRF: SameSite=Lax plus an `Origin` header check on state-changing requests.
 - Rate limits (`@fastify/rate-limit` backed by Redis): login 5/min per IP+email; join queue 3/10 min per device per queue plus 30/10 min per IP per queue as a backstop; public stream connections capped per IP. The per-IP limits are loose on purpose: Brazilian mobile carriers use CGNAT and a shop's Wi-Fi is one IP, so many real customers share an address.
 - **Device id**: an anonymous random cookie `waitless_device` (HttpOnly, 1 year), set on the first public request.
