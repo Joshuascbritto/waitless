@@ -1,11 +1,11 @@
-# Fila — Product & Technical Specification
+# Waitless — Product & Technical Specification
 
 ## 1. Problem and pitch
 
 Small businesses in Brazil (barbershops, clinics, pet shops, repair shops) still manage walk-in queues on paper or through chaotic WhatsApp threads. Customers don't know when they'll be seen, so they leave. Owners waste time writing names down and have no data about their busiest hours.
 
 **30-second pitch (use in the README and in interviews):**
-> "I built Fila, a virtual queue for small businesses. In Brazil most barbershops and clinics still run their waiting line on paper. With Fila, a customer scans a QR code, joins the line from their phone, watches their position update live and gets a push notification when it's their turn — so they can wait at the café next door instead of in the shop. The owner gets a real-time dashboard and metrics like peak hours and abandonment rate. It's multi-tenant with Postgres row-level security, uses SSE with Redis pub/sub for real-time fan-out across replicas, and handles concurrent 'call next' clicks safely with `SKIP LOCKED`."
+> "I built Waitless, a virtual queue for small businesses. In Brazil most barbershops and clinics still run their waiting line on paper. With Waitless, a customer scans a QR code, joins the line from their phone, watches their position update live and gets a push notification when it's their turn — so they can wait at the café next door instead of in the shop. The owner gets a real-time dashboard and metrics like peak hours and abandonment rate. It's multi-tenant with Postgres row-level security, uses SSE with Redis pub/sub for real-time fan-out across replicas, and handles concurrent 'call next' clicks safely with `SKIP LOCKED`."
 
 ## 2. Users and core flows
 
@@ -29,7 +29,7 @@ Small businesses in Brazil (barbershops, clinics, pet shops, repair shops) still
 
 ## 3. Scope
 
-**MVP (must have)**: everything in §2 except team invites, i18n and email notifications. Web Push is enough for the MVP.
+**MVP (must have)**: everything in §2 except team invites, i18n and email notifications. Web Push is enough for the MVP. Until invites ship, staff accounts exist only through the seed.
 
 **v1.1 (nice to have)**: team invites, email notifications, pt-BR translation, "pause queue" message, staff-side sound alert.
 
@@ -61,7 +61,7 @@ Small businesses in Brazil (barbershops, clinics, pet shops, repair shops) still
 
 ## 5. Data model
 
-All tenant-scoped tables have `tenant_id uuid not null` and RLS enabled. Use `uuid` PKs (v7 if available, otherwise `gen_random_uuid()`).
+All tenant-scoped tables have `tenant_id uuid not null` and RLS enabled. Use `uuid` PKs generated with PostgreSQL 18's native `uuidv7()` (time-ordered, so they also work as a stable tie-breaker).
 
 ```sql
 tenants (                      -- NOT RLS-scoped (resolved by slug before tenant context exists)
@@ -73,7 +73,7 @@ users (                        -- NOT tenant-scoped
   id uuid pk, email citext unique, name text, password_hash text, created_at
 )
 
-memberships (                  -- RLS
+memberships (                  -- RLS, dual-key policy: visible by tenant OR by user (see §9)
   tenant_id uuid fk, user_id uuid fk, role text check (role in ('owner','staff')),
   primary key (tenant_id, user_id)
 )
@@ -104,9 +104,11 @@ tickets (                      -- RLS
   number int, display_code text,     -- e.g. 'A-023'
   customer_name text, customer_email text null,
   source text check (source in ('qr','walk_in')),
-  status text check (status in ('waiting','called','serving','done','no_show','cancelled')),
+  status text check (status in ('waiting','called','serving','done','no_show','cancelled','removed')),
   sort_key numeric not null,   -- ordering among waiting tickets (see §6.3)
+  device_id text null,         -- anonymous device cookie; enforces one active ticket per device per queue
   joined_at, called_at, serving_at, finished_at timestamptz,
+                               -- called_at is the LATEST call; the first call lives in ticket_events
   called_by uuid null fk users,
   push_count int default 0     -- times pushed back
 )
@@ -120,13 +122,14 @@ push_subscriptions (           -- RLS
 
 ticket_events (                -- RLS; append-only audit log, feeds metrics & debugging
   id bigserial pk, tenant_id, ticket_id, queue_id,
-  type text,                   -- joined, called, pushed_back, serving, done, no_show, cancelled, removed
+  type text,                   -- joined, called, pushed_back, serving, done, no_show, cancelled, removed, notified
   actor_type text check (actor_type in ('customer','staff','system')),
   actor_id uuid null, payload jsonb, at timestamptz default now()
 )
+-- unique partial index: (ticket_id, (payload->>'kind')) where type = 'notified'   -- notification dedupe (§8)
 ```
 
-**Contact info is personal data.** Delete `customer_email` and push subscriptions 30 days after a ticket finishes (a scheduled BullMQ job). Mention this in the README (LGPD/GDPR awareness is a good interview signal).
+**Contact info is personal data.** Push subscriptions are deleted as soon as the ticket reaches a final status (they have no further use). `customer_email` is deleted 30 days after a ticket finishes (a scheduled BullMQ job). Mention this in the README (LGPD/GDPR awareness is a good interview signal).
 
 ## 6. Queue logic
 
@@ -138,8 +141,11 @@ All rules below live as pure functions in `packages/shared/queue` with unit test
 waiting ──call──► called ──start──► serving ──finish──► done
    │                 │  └──push_back(n)──► waiting
    │                 └──no_show (staff or auto after N min)──► no_show
-   └──cancel (customer) / remove (staff)──► cancelled
+   ├──cancel (customer)──► cancelled
+   └──remove (staff)──► removed
 ```
+
+`cancelled` (the customer left) and `removed` (staff cleanup, e.g. a duplicate or a mistake) are separate final states, so staff corrections don't inflate the abandonment rate (§10). `cancel` and `remove` are also allowed from `called`.
 
 Any other transition is rejected with `409 Conflict` (`InvalidTransitionError`). Export `canTransition(from, action)` and test it exhaustively (table-driven).
 
@@ -159,8 +165,9 @@ RETURNING last_number;
 ### 6.3 Ordering and "push back"
 
 - New ticket: `sort_key = extract(epoch from now()) * 1000`.
-- Push back by N (default 2): take the waiting tickets ordered by `sort_key`. Set this ticket's `sort_key` to the midpoint between the Nth and (N+1)th keys. If fewer than N+1 are waiting, put it at the end (`max + 1`). Status goes back to `waiting`, `push_count += 1`.
-- Position = `1 + count(waiting tickets in the same queue with sort_key < mine)`.
+- **Total order is `(sort_key, id)`.** Two joins in the same millisecond get equal keys; the uuidv7 `id` breaks the tie deterministically. Every `ORDER BY` and position count uses this pair.
+- Push back by N (default 2): take the waiting tickets in that order. Set this ticket's `sort_key` to the midpoint between the Nth and (N+1)th keys. If fewer than N+1 are waiting, put it at the end (`max + 1`). Status goes back to `waiting`, `push_count += 1`.
+- Position = `1 + count(waiting tickets in the same queue where (sort_key, id) < (my sort_key, my id))`.
 
 ### 6.4 Call next — concurrency-safe
 
@@ -171,7 +178,7 @@ UPDATE tickets t SET status = 'called', called_at = now(), called_by = $user
 WHERE t.id = (
   SELECT id FROM tickets
   WHERE queue_id = $queue AND status = 'waiting'
-  ORDER BY sort_key
+  ORDER BY sort_key, id
   LIMIT 1
   FOR UPDATE SKIP LOCKED
 )
@@ -189,18 +196,18 @@ Returns 0 rows → `204` "queue empty". Mandatory test: 20 parallel `callNext` a
 
 ### 6.6 Auto no-show
 
-When a ticket is called, enqueue a BullMQ **delayed job** `auto-no-show` with delay `no_show_after_minutes`, job id `no-show:{ticketId}:{called_at}`. The job re-reads the ticket. It only acts if it's still `called` with the same `called_at`, so a push-back followed by a re-call doesn't trigger a stale job. Idempotent by design.
+When a ticket is called, enqueue a BullMQ **delayed job** `auto-no-show` with delay `no_show_after_minutes`, job id `no-show-{ticketId}-{calledAtEpochMs}` (no `:` in custom job ids: BullMQ uses it as its Redis key separator). The job payload carries `tenantId` so the worker can enter `withTenant`. The job re-reads the ticket. It only acts if it's still `called` with the same `called_at`, so a push-back followed by a re-call doesn't trigger a stale job. Idempotent by design.
 
 ## 7. Real-time (SSE + Redis pub/sub)
 
 **Why SSE, not WebSocket** (ADR-0002): updates only flow server → client. Client actions are normal REST calls. SSE runs over plain HTTP, reconnects automatically, supports `Last-Event-ID`, passes through proxies and ingress without upgrade config, and is trivial to authenticate with the existing cookie.
 
 **Streams**
-- `GET /api/admin/queues/:queueId/stream` (session cookie): full board. Sends `snapshot` on connect, then `ticket.updated` / `ticket.created` events.
+- `GET /api/admin/:tenantSlug/queues/:queueId/stream` (session cookie): full board. Sends `snapshot` on connect, then `ticket.updated` / `ticket.created` events.
 - `GET /api/public/q/:tenantSlug/t/:token/stream` (no auth; the token is the capability): sends only `{ status, position, etaRange, displayCode, nowServing }` for that ticket. **Never** send other customers' names or tokens.
 
 **Fan-out**
-- On every state change, after the DB transaction commits, publish to Redis channel `fila:queue:{queueId}` with payload `{ type, ticketId, version }` (ids only, no PII).
+- On every state change, after the DB transaction commits, publish to Redis channel `waitless:queue:{queueId}` with payload `{ type, tenantId, ticketId, version }` (ids only, no PII). `tenantId` lets the receiving instance run its refresh query inside `withTenant`.
 - Each API instance keeps **one** Redis subscription per queue that has at least one connected client (reference-counted; unsubscribe when the last client disconnects).
 - On a message, the instance runs **one** query to fetch the current ordered waiting list for that queue, then computes and pushes each connected client's personalized payload in memory. Cost is one query per event per instance, not one per client.
 - Heartbeat comment (`: ping`) every 15 s. Headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Clean up on `close`.
@@ -214,7 +221,8 @@ When a ticket is called, enqueue a BullMQ **delayed job** `auto-no-show` with de
 - Triggers (enqueued as BullMQ `send-push` jobs, retried with exponential backoff, max 3 attempts):
   - Position becomes ≤ `notify_when_ahead` → "You're almost up at {tenant} — {n} ahead of you".
   - Ticket is called → "It's your turn! Ticket A-023".
-- Dedupe: record sent notifications in `ticket_events` (`type = 'notified', payload.kind`) and skip if already sent.
+- **Who detects "almost up"**: any state change can move many tickets forward at once. After commit, the API that made the change enqueues one `notify-scan` job for the queue (`{ tenantId, queueId }`). The worker reads the ordered waiting list once and enqueues `send-push` for every ticket at or under the threshold. Only one place runs this check, so the API replicas don't each send their own copy.
+- **Dedupe, two layers**: (1) `send-push` uses job id `push-{ticketId}-{kind}`, so BullMQ ignores a duplicate enqueue while the first job is retained; (2) after a successful send the worker inserts a `ticket_events` row (`type = 'notified', payload.kind`), and the unique partial index (§5) rejects a second one. The worker checks for that row before sending.
 - `410 Gone` from the push service → delete that subscription.
 - Email (v1.1): same triggers, through Resend in prod and Mailpit in dev, behind a `Notifier` interface so the job doesn't care about the channel.
 - iOS note for the README: Web Push on iPhone works only if the site is added to the home screen (PWA). Add a minimal `manifest.json` and say so honestly.
@@ -231,16 +239,28 @@ CREATE POLICY tenant_isolation ON tickets
   WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
 ```
 
-- Two DB roles: `fila_owner` (owns tables, runs migrations) and `fila_app` (what the API uses, no `BYPASSRLS`). Because of `FORCE`, even the owner is filtered when it queries.
+- Two DB roles: `waitless_owner` (owns tables, runs migrations) and `waitless_app` (what the API and worker use, no `BYPASSRLS`). Because of `FORCE`, even the owner is filtered when it queries.
+- **Roles are created outside the migrations**, by a superuser bootstrap script (`deploy/docker/postgres/init/*.sql` mounted into the Postgres container's `docker-entrypoint-initdb.d`, and a one-off superuser Job in k8s). Migrations run as `waitless_owner`, which can't create roles, including itself.
 - `withTenant(tenantId, fn)`: `BEGIN; SELECT set_config('app.tenant_id', $1, true); ... COMMIT`. With no tenant set, `current_setting(..., true)` returns NULL → zero rows. **Fail closed.**
-- Admin requests: the tenant comes from the URL slug, and membership is checked (`memberships` row for the session user) **before** entering `withTenant`.
+- `withUser(userId, fn)`: same pattern with `app.user_id`. Used only to read the caller's own `memberships`.
+- **`memberships` policy is dual-key**, because it's read before any tenant context exists (the membership check, `/api/auth/me`):
+  ```sql
+  USING (tenant_id = current_setting('app.tenant_id', true)::uuid
+         OR user_id = current_setting('app.user_id', true)::uuid)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid)
+  ```
+  Reads are allowed by tenant (team page) or by user (my memberships). Writes always need tenant context. With neither set, it still returns zero rows.
+- Admin requests: the tenant comes from the URL slug; membership is checked with `withUser(sessionUserId)` **before** entering `withTenant`.
+- `POST /api/tenants`: insert into `tenants` (not RLS-scoped), then insert the owner membership inside `withTenant(newTenantId)`.
 - Public requests: resolve tenant by slug (tenants table, not RLS-scoped), then `withTenant`, then look up the ticket by `public_token`.
+- **Cross-tenant maintenance** (seed, demo reset, PII cleanup): list tenants from the unscoped `tenants` table, then process each one inside its own `withTenant`. No role bypasses RLS. Every BullMQ job payload carries `tenantId`.
 
 **Auth**
 - Email + password, hashed with argon2id. Session id is random 256-bit, stored hashed. Cookie: `HttpOnly; Secure; SameSite=Lax; Path=/`. 14-day sliding expiry.
 - CSRF: SameSite=Lax plus an `Origin` header check on state-changing requests.
-- Rate limits (`@fastify/rate-limit` backed by Redis): login 5/min per IP+email; join queue 3/10 min per IP per queue; public stream connections capped per IP.
-- One active ticket per device per queue: if the localStorage token for this queue is still active, show it instead of creating another.
+- Rate limits (`@fastify/rate-limit` backed by Redis): login 5/min per IP+email; join queue 3/10 min per device per queue plus 30/10 min per IP per queue as a backstop; public stream connections capped per IP. The per-IP limits are loose on purpose: Brazilian mobile carriers use CGNAT and a shop's Wi-Fi is one IP, so many real customers share an address.
+- **Device id**: an anonymous random cookie `waitless_device` (HttpOnly, 1 year), set on the first public request.
+- One active ticket per device per queue: if this device already has an active ticket in this queue (server-side, by `device_id`), return it instead of creating another. The client also keeps the token in localStorage. This is a UX guard against double taps, not a security control; clearing cookies bypasses it, and that's acceptable.
 - Security headers via `@fastify/helmet`. `public_token` is never logged.
 
 ## 10. Metrics
@@ -249,9 +269,9 @@ Computed from `tickets` (plus `ticket_events` where needed), in the tenant's tim
 
 | Metric | Definition |
 |---|---|
-| Avg wait | mean(`called_at - joined_at`), first call only |
+| Avg wait | mean(first `called` event `at` − `joined_at`). The first call comes from `ticket_events`, because `tickets.called_at` is overwritten on a re-call |
 | Avg service | mean(`finished_at - serving_at`) for `done` |
-| Abandonment rate | (`cancelled` + `no_show`) / total tickets |
+| Abandonment rate | (`cancelled` + `no_show`) / tickets in a final status, excluding `removed` |
 | Throughput | `done` tickets per day |
 | Peak hours | heatmap: count of `joined_at` by weekday × hour (`AT TIME ZONE tz`) |
 | p90 wait | `percentile_cont(0.9)` of wait |
@@ -275,7 +295,7 @@ GET    /api/admin/:tenantSlug/queues                   (+ POST, PATCH /:queueId)
 GET    /api/admin/:tenantSlug/queues/:queueId/board
 GET    /api/admin/:tenantSlug/queues/:queueId/stream   → SSE
 POST   /api/admin/:tenantSlug/queues/:queueId/call-next
-POST   /api/admin/:tenantSlug/tickets/:id/{call|start|finish|push-back|no-show|remove}
+POST   /api/admin/:tenantSlug/tickets/:id/{call|start|finish|push-back|no-show|remove}   (remove → status `removed`)
 POST   /api/admin/:tenantSlug/queues/:queueId/walk-ins
 GET    /api/admin/:tenantSlug/metrics?range=7d&queueId=
 POST   /api/tenants                                    → create tenant (caller becomes owner)
@@ -288,7 +308,7 @@ Generate an OpenAPI document from the zod schemas (`fastify-type-provider-zod` o
 - **Unit (Vitest)**: state machine (every from × action pair), ETA math, sort-key push-back, display code, payload redaction.
 - **Integration (Vitest + Testcontainers Postgres/Redis)**, all mandatory:
   1. **Concurrency**: 20 parallel `callNext` vs 10 waiting → 10 distinct called, 10 empty, 0 errors.
-  2. **RLS isolation**: as `fila_app` with tenant A set, selecting/updating tenant B's tickets returns 0 rows / affects 0 rows. With no tenant set → 0 rows.
+  2. **RLS isolation**: as `waitless_app` with tenant A set, selecting/updating tenant B's tickets returns 0 rows / affects 0 rows. With no tenant set → 0 rows. `memberships`: with `app.user_id` set, the user sees only their own rows across tenants; inserting a membership without tenant context fails.
   3. **Numbering**: 50 parallel joins → numbers 1..50, no gaps, no duplicates. Day rollover in the tenant timezone.
   4. **Fan-out**: two API instances in one test, client on instance B, action on instance A → client receives the event.
   5. **Auto no-show**: stale job after push-back + re-call does nothing.
@@ -300,18 +320,19 @@ Generate an OpenAPI document from the zod schemas (`fastify-type-provider-zod` o
 `pnpm db:seed` creates:
 - Tenant **"Barbearia Demo"** (fictional), timezone `America/Bahia`, queues "Haircut" (prefix A, 2 servers, 20 min) and "Beard" (prefix B, 1 server, 10 min).
 - Second tenant **"PetShop Demo"** (to show multi-tenancy and RLS in the demo).
-- Users: `owner@demo.fila.dev` / `demo1234` (owner of both), `staff@demo.fila.dev` / `demo1234`.
+- Users: `owner@demo.waitless.dev` / `demo1234` (owner of both), `staff@demo.waitless.dev` / `demo1234`.
 - **30 days of realistic history**: arrival rates by weekday and hour (busy Friday evenings and Saturday mornings), service times drawn from a normal distribution around the queue default, ~8% cancelled and ~5% no-show. This makes the metrics page look real.
 - A few tickets waiting *right now*, so the board isn't empty.
 - Public demo: reset the demo data nightly (k8s CronJob running the seed with `--reset-demo`).
 
 ## 14. Deployment and CI
 
-- **Dockerfiles**: multi-stage, non-root user, pnpm `deploy` for slim images. Images: `fila-web`, `fila-api` (the worker uses the api image with `CMD node dist/worker.js`).
+- **Dockerfiles**: multi-stage, non-root user, pnpm `deploy` for slim images. Images: `waitless-web`, `waitless-api` (the worker uses the api image with `CMD node dist/worker.js`).
 - **docker-compose.yml** (dev): postgres, redis, mailpit. Optional `--profile full` that also runs web + 2× api + worker + Caddy, to test the prod-like routing locally.
 - **Kubernetes** (`deploy/k8s`, Kustomize):
   - `base/`: Deployments for web, api (replicas: 2), worker; Services; Ingress (`/api` → api, `/` → web, with SSE-friendly timeouts and buffering off); ConfigMap; Secret templates (no real values); PodDisruptionBudget for api; liveness and readiness probes (`/api/health/live`, `/api/health/ready` checking DB + Redis); resource requests and limits.
-  - Migrations: a `Job` (or init container) using the `fila_owner` credentials.
+  - Role bootstrap: a one-off superuser `Job` that creates `waitless_owner` / `waitless_app` if missing (§9).
+  - Migrations: a `Job` (or init container) using the `waitless_owner` credentials.
   - `overlays/local` (kind or k3d) and `overlays/prod` (VPS running k3s + Traefik + cert-manager, or managed Postgres/Redis).
   - CronJobs: demo reset, PII cleanup.
 - **GitHub Actions**: `ci.yml` (install → lint → typecheck → unit → integration → e2e → build) on PRs; `release.yml` on `main` builds and pushes images to GHCR tagged with the git SHA, then deploys (kubectl/kustomize with a kubeconfig secret).
