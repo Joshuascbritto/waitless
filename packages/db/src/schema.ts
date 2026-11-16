@@ -138,16 +138,6 @@ export const queueCounters = pgTable(
   ],
 );
 
-export const TICKET_STATUSES = [
-  "waiting",
-  "called",
-  "serving",
-  "done",
-  "no_show",
-  "cancelled",
-  "removed",
-] as const;
-
 export const tickets = pgTable(
   "tickets",
   {
