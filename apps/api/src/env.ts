@@ -44,6 +44,15 @@ const VAPID_MESSAGE = {
   path: ["VAPID_PUBLIC_KEY"],
 };
 
+/**
+ * Port for Prometheus `/metrics`, separate from the app port so the public
+ * Ingress never exposes it. Unset: no metrics server (local dev, where the
+ * API and the worker share one host).
+ */
+const MetricsSchema = {
+  METRICS_PORT: z.coerce.number().int().min(1).max(65_535).optional(),
+};
+
 const EnvSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -62,6 +71,7 @@ const EnvSchema = z
       .transform((value) => value === "true"),
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
     REDIS_URL: z.url({ protocol: /^rediss?$/ }),
+    ...MetricsSchema,
     ...VapidSchema,
   })
   .refine(allOrNoneVapid, VAPID_MESSAGE);
@@ -77,6 +87,7 @@ const WorkerEnvSchema = z
       .default("info"),
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
     REDIS_URL: z.url({ protocol: /^rediss?$/ }),
+    ...MetricsSchema,
     ...VapidSchema,
   })
   .refine(allOrNoneVapid, VAPID_MESSAGE);

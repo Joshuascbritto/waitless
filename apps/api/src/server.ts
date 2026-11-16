@@ -4,6 +4,7 @@ import { buildApp } from "./app.ts";
 import { loadEnv } from "./env.ts";
 import { JobQueues } from "./jobs/queues.ts";
 import { loggerOptions } from "./logging.ts";
+import { collectProcessMetrics, startMetricsServer } from "./observability/metrics.ts";
 
 const env = loadEnv(process.env);
 
@@ -49,7 +50,17 @@ pool.on("error", (err) => app.log.warn({ err }, "postgres pool error"));
 redis.on("error", (err) => app.log.warn({ err }, "redis connection error"));
 jobsConnection.on("error", (err) => app.log.warn({ err }, "redis (jobs) connection error"));
 
+const metricsServer =
+  env.METRICS_PORT === undefined
+    ? undefined
+    : await startMetricsServer(app.metrics.registry, {
+        host: env.API_HOST,
+        port: env.METRICS_PORT,
+      });
+if (metricsServer) collectProcessMetrics(app.metrics.registry);
+
 app.addHook("onClose", async () => {
+  metricsServer?.close();
   await jobs.close();
   await Promise.allSettled([pool.end(), redis.quit(), jobsConnection.quit()]);
 });

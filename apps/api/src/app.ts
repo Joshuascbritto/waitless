@@ -13,6 +13,7 @@ import {
 } from "fastify-type-provider-zod";
 import type { Redis } from "ioredis";
 import type { JobQueues } from "./jobs/queues.ts";
+import { type ApiMetrics, createApiMetrics } from "./observability/metrics.ts";
 import { registerAuth } from "./plugins/auth.ts";
 import { registerErrorHandlers } from "./plugins/error-handler.ts";
 import { registerOriginCheck } from "./plugins/origin-check.ts";
@@ -53,6 +54,13 @@ export interface AppDeps {
   services?: Services;
 }
 
+declare module "fastify" {
+  interface FastifyInstance {
+    /** Prometheus metrics of this instance; served on a separate port by server.ts. */
+    metrics: ApiMetrics;
+  }
+}
+
 const REQUEST_ID_HEADER = "x-request-id";
 // Accept an incoming id only if it looks like an id: it ends up in every log line.
 const VALID_REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/;
@@ -79,6 +87,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   // Routes declare zod schemas (shared with the web app); responses are
   // serialized through them too, so extra fields (e.g. password_hash) can't leak.
+  app.decorate("metrics", createApiMetrics());
+
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
@@ -129,6 +139,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     registerAuth(app, services.db);
 
     const realtime = createRealtime(services.db, services.redis, app.log);
+    app.metrics.trackSseConnections(() => realtime.streams.size);
     // End open streams first, or close() would wait on them forever.
     app.addHook("preClose", async () => realtime.streams.closeAll());
     app.addHook("onClose", async () => realtime.close());
@@ -142,6 +153,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       redis: services.redis,
       realtime,
       effects,
+      metrics: app.metrics,
       vapidPublicKey: services.vapidPublicKey,
     });
     await app.register(adminRoutes, {
@@ -149,6 +161,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       db: services.db,
       realtime,
       effects,
+      metrics: app.metrics,
     });
   }
 

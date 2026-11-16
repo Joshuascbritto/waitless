@@ -32,6 +32,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import type { Redis } from "ioredis";
 import { z } from "zod";
+import type { ApiMetrics } from "../observability/metrics.ts";
 import { hitLimits } from "../plugins/fixed-window.ts";
 import { findQueueBySlug, findTenantBySlug } from "../queue/lookup.ts";
 import type { SideEffects } from "../queue/side-effects.ts";
@@ -64,6 +65,7 @@ export interface PublicRoutesOptions {
   redis: Redis;
   realtime: Realtime;
   effects: SideEffects;
+  metrics: ApiMetrics;
   /** VAPID public key for the browser to subscribe with; null disables push. */
   vapidPublicKey: string | null;
 }
@@ -75,7 +77,7 @@ const queueKey = (request: FastifyRequest) => {
 
 export const publicRoutes: FastifyPluginAsyncZod<PublicRoutesOptions> = async (
   app,
-  { db, redis, realtime, effects, vapidPublicKey },
+  { db, redis, realtime, effects, metrics, vapidPublicKey },
 ) => {
   app.decorateRequest("deviceId", "");
   app.addHook("onRequest", async (request, reply) => {
@@ -206,6 +208,7 @@ export const publicRoutes: FastifyPluginAsyncZod<PublicRoutesOptions> = async (
           return { ticket: winner, created: false };
         }
       });
+      if (created) metrics.ticketsCreated.inc({ source: "qr" });
       return reply
         .code(created ? 201 : 200)
         .send({ token: ticket.publicToken, displayCode: ticket.displayCode });

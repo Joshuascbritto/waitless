@@ -35,6 +35,7 @@ import {
 import type { FastifyRequest } from "fastify";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import type { ApiMetrics } from "../observability/metrics.ts";
 import { findQueue } from "../queue/lookup.ts";
 import type { SideEffects } from "../queue/side-effects.ts";
 import { toAdminTicket, toBoard, toQueue } from "../queue/views.ts";
@@ -81,7 +82,8 @@ export const adminRoutes: FastifyPluginAsyncZod<{
   db: Db;
   realtime: Realtime;
   effects: SideEffects;
-}> = async (app, { db, realtime, effects }) => {
+  metrics: ApiMetrics;
+}> = async (app, { db, realtime, effects, metrics }) => {
   app.addHook("preHandler", app.requireUser);
   app.addHook("preHandler", app.requireTenantMember);
 
@@ -268,20 +270,32 @@ export const adminRoutes: FastifyPluginAsyncZod<{
     },
     async (request, reply) => {
       const { tenant } = context(request);
-      const ticket = await db.withTenant(tenant.id, async (tx, ctx) => {
-        const queue = await findQueue(tx, tenant.id, request.params.queueId);
-        const called = await callNext(tx, { queueId: queue.id, staffId: staffId(request) });
-        if (called) {
-          effects.changed(ctx, {
-            type: "ticket.updated",
-            tenantId: tenant.id,
-            queueId: queue.id,
-            ticketId: called.id,
-          });
-          effects.called(ctx, queue, called);
-        }
-        return called;
-      });
+      const endTimer = metrics.callNextDuration.startTimer();
+      const ticket = await db
+        .withTenant(tenant.id, async (tx, ctx) => {
+          const queue = await findQueue(tx, tenant.id, request.params.queueId);
+          const called = await callNext(tx, { queueId: queue.id, staffId: staffId(request) });
+          if (called) {
+            effects.changed(ctx, {
+              type: "ticket.updated",
+              tenantId: tenant.id,
+              queueId: queue.id,
+              ticketId: called.id,
+            });
+            effects.called(ctx, queue, called);
+          }
+          return called;
+        })
+        .then(
+          (called) => {
+            endTimer({ outcome: called ? "called" : "empty" });
+            return called;
+          },
+          (error: unknown) => {
+            endTimer({ outcome: "error" });
+            throw error;
+          },
+        );
       if (!ticket) {
         return reply.code(204).send(null);
       }
@@ -319,6 +333,7 @@ export const adminRoutes: FastifyPluginAsyncZod<{
         });
         return created;
       });
+      metrics.ticketsCreated.inc({ source: "walk_in" });
       return reply.code(201).send({ ticket: toAdminTicket(ticket) });
     },
   );

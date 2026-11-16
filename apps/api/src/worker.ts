@@ -10,10 +10,17 @@ import { loadWorkerEnv } from "./env.ts";
 import { type Notifier, WebPushNotifier } from "./jobs/notifier.ts";
 import { JobQueues } from "./jobs/queues.ts";
 import { scheduleMaintenance, startWorkers } from "./jobs/workers.ts";
+import {
+  collectProcessMetrics,
+  createWorkerMetrics,
+  startMetricsServer,
+} from "./observability/metrics.ts";
 import { publishQueueEvent } from "./realtime/queue-events.ts";
 
 const env = loadWorkerEnv(process.env);
 const log = pino({ level: env.LOG_LEVEL, base: { service: "worker" } });
+
+const metrics = createWorkerMetrics();
 
 const pool = createPool(env.DATABASE_URL);
 pool.on("error", (err) => log.warn({ err }, "postgres pool error"));
@@ -52,6 +59,18 @@ const workers = startWorkers(
   },
   connect,
 );
+for (const worker of workers) {
+  worker.on("completed", () =>
+    metrics.jobsProcessed.inc({ queue: worker.name, result: "completed" }),
+  );
+  worker.on("failed", () => metrics.jobsProcessed.inc({ queue: worker.name, result: "failed" }));
+}
+const metricsServer =
+  env.METRICS_PORT === undefined
+    ? undefined
+    : await startMetricsServer(metrics.registry, { host: "0.0.0.0", port: env.METRICS_PORT });
+if (metricsServer) collectProcessMetrics(metrics.registry);
+
 await scheduleMaintenance(jobs);
 log.info("worker started");
 
@@ -59,6 +78,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, async () => {
     log.info({ signal }, "shutting down");
     // close() waits for running jobs to finish; unfinished ones are retried by another worker.
+    metricsServer?.close();
     await Promise.allSettled(workers.map((w) => w.close()));
     await jobs.close();
     await Promise.allSettled([pool.end(), ...connections.map((c) => c.quit())]);
