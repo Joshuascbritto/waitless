@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   almostUpMessage,
+  isAllowedPushEndpoint,
   notificationKind,
   PushSubscriptionInputSchema,
   shouldNotifyAlmostUp,
@@ -56,5 +57,36 @@ describe("PushSubscriptionInputSchema", () => {
     expect(
       PushSubscriptionInputSchema.safeParse({ endpoint: "http://evil.example/x", keys }).success,
     ).toBe(false);
+    expect(
+      PushSubscriptionInputSchema.safeParse({ endpoint: "https://internal.example/x", keys })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("isAllowedPushEndpoint (SSRF guard)", () => {
+  it.each([
+    "https://fcm.googleapis.com/fcm/send/abc",
+    "https://updates.push.services.mozilla.com/wpush/v2/abc",
+    "https://web.push.apple.com/QH8...",
+    "https://wns2-par02p.notify.windows.com/w/?token=abc",
+    "https://FCM.googleapis.com./fcm/send/abc",
+  ])("accepts %s", (endpoint) => {
+    expect(isAllowedPushEndpoint(endpoint)).toBe(true);
+  });
+
+  it.each([
+    "https://169.254.169.254/latest/meta-data",
+    "https://localhost/x",
+    "https://10.0.0.5/x",
+    "https://api-1:3001/api/admin",
+    "https://fcm.googleapis.com:8443/x",
+    "https://evilfcm.googleapis.com.attacker.example/x",
+    "https://notfcm.googleapis.com.evil/x",
+    "https://user:pass@fcm.googleapis.com/x",
+    "http://fcm.googleapis.com/x",
+    "not a url",
+  ])("rejects %s", (endpoint) => {
+    expect(isAllowedPushEndpoint(endpoint)).toBe(false);
   });
 });

@@ -2,7 +2,7 @@
  * Delivery channel behind an interface (SPEC §8): jobs decide WHAT to send,
  * a Notifier decides HOW. Web Push now; email (Resend) in v1.1 plugs in here.
  */
-import type { PushMessage } from "@waitless/shared";
+import { isAllowedPushEndpoint, type PushMessage } from "@waitless/shared";
 import { sendNotification, setVapidDetails, WebPushError } from "web-push";
 
 export interface PushTarget {
@@ -35,6 +35,11 @@ export class WebPushNotifier implements Notifier {
   }
 
   async send(target: PushTarget, message: PushMessage): Promise<DeliveryResult> {
+    // Defense in depth: rows saved before the allowlist existed, or written by
+    // any other path, never make us contact an arbitrary host. Drop them.
+    if (!isAllowedPushEndpoint(target.endpoint)) {
+      return "gone";
+    }
     try {
       await sendNotification(
         { endpoint: target.endpoint, keys: { p256dh: target.p256dh, auth: target.auth } },

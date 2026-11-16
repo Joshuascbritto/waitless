@@ -59,9 +59,40 @@ export function yourTurnMessage(input: {
   };
 }
 
+/**
+ * Push services browsers actually use. The endpoint comes from an anonymous
+ * client and the worker POSTs to it, so without this allowlist anyone could
+ * make our servers send requests to an arbitrary host (SSRF), including
+ * internal ones. Exact host or dot-anchored subdomain.
+ */
+export const PUSH_SERVICE_HOSTS = [
+  "fcm.googleapis.com", // Chrome, Android, Opera, Samsung Internet
+  "push.services.mozilla.com", // Firefox (updates.push.services.mozilla.com)
+  "web.push.apple.com", // Safari, iOS home-screen apps
+  "notify.windows.com", // Edge (*.notify.windows.com)
+] as const;
+
+/** HTTPS on the default port, on a known push service host. */
+export function isAllowedPushEndpoint(endpoint: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" || url.port !== "" || url.username || url.password) {
+    return false;
+  }
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  return PUSH_SERVICE_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+}
+
 /** What a browser's PushSubscription.toJSON() sends us. */
 export const PushSubscriptionInputSchema = z.object({
-  endpoint: z.url({ protocol: /^https$/ }).max(2048),
+  endpoint: z
+    .url({ protocol: /^https$/ })
+    .max(2048)
+    .refine(isAllowedPushEndpoint, { message: "Not a known Web Push service" }),
   keys: z.object({
     p256dh: z.string().min(1).max(256),
     auth: z.string().min(1).max(64),

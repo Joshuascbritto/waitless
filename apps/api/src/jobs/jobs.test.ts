@@ -69,7 +69,7 @@ async function joinWithPush(queueSlug: string, name: string) {
   const { token } = (await post(`/api/public/q/${TENANT}/${queueSlug}/tickets`, { name })).json();
   subscriptionCounter += 1;
   const res = await post(`/api/public/q/${TENANT}/t/${token}/push`, {
-    endpoint: `https://push.example/${subscriptionCounter}`,
+    endpoint: `https://fcm.googleapis.com/fcm/send/test-${subscriptionCounter}`,
     keys: { p256dh: "p256dh-key", auth: "auth-key" },
   });
   expect(res.statusCode).toBe(204);
