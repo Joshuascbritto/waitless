@@ -3,13 +3,13 @@
  * bootstrapped and migrated exactly like production.
  */
 import { eq, sql } from "drizzle-orm";
-import pg from "pg";
+import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Db } from "./client.ts";
 import { pgErrorCode } from "./errors.ts";
 import { memberships, queues, ticketEvents, tickets, users } from "./schema.ts";
 import { createTenantWithOwner } from "./tenants.ts";
-import { startTestDatabase, type TestDatabase } from "./testing.ts";
+import { createTestPool, startTestDatabase, type TestDatabase } from "./testing.ts";
 
 let database: TestDatabase;
 let pool: pg.Pool;
@@ -71,7 +71,7 @@ async function seedTenant(slug: string, ownerEmail: string) {
 
 beforeAll(async () => {
   database = await startTestDatabase();
-  pool = new pg.Pool({ connectionString: database.appUrl, max: 1 });
+  pool = createTestPool(database.appUrl, 1);
   db = createDb(pool);
 
   const a = await seedTenant("tenant-a", "a@example.com");
@@ -185,7 +185,7 @@ describe("memberships (dual-key policy)", () => {
 
 describe("table owner", () => {
   it("is filtered too, because of FORCE ROW LEVEL SECURITY", async () => {
-    const ownerPool = new pg.Pool({ connectionString: database.ownerUrl, max: 1 });
+    const ownerPool = createTestPool(database.ownerUrl, 1);
     try {
       const { rows } = await ownerPool.query("select count(*)::int as n from tickets");
       expect(rows[0].n).toBe(0);

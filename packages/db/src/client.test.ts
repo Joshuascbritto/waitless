@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
-import pg from "pg";
+import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDb, type Db } from "./client.ts";
 import { isUniqueViolation } from "./errors.ts";
 import { tenants, users } from "./schema.ts";
 import { createTenantWithOwner } from "./tenants.ts";
-import { startTestDatabase, type TestDatabase } from "./testing.ts";
+import { createTestPool, startTestDatabase, type TestDatabase } from "./testing.ts";
 
 let database: TestDatabase;
 let pool: pg.Pool;
@@ -15,7 +15,7 @@ let tenantId: string;
 
 beforeAll(async () => {
   database = await startTestDatabase();
-  pool = new pg.Pool({ connectionString: database.appUrl, max: 2 });
+  pool = createTestPool(database.appUrl, 2);
   db = createDb(pool);
 
   const [user] = await db.global

@@ -4,7 +4,7 @@
  */
 import { InvalidTransitionError, NotFoundError } from "@waitless/shared";
 import { eq } from "drizzle-orm";
-import pg from "pg";
+import type pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDb, type Db } from "./client.ts";
 import {
@@ -19,7 +19,7 @@ import {
 } from "./queue.ts";
 import { pushSubscriptions, queues, ticketEvents, tickets, users } from "./schema.ts";
 import { createTenantWithOwner } from "./tenants.ts";
-import { startTestDatabase, type TestDatabase } from "./testing.ts";
+import { createTestPool, startTestDatabase, type TestDatabase } from "./testing.ts";
 
 const TZ = "America/Bahia"; // UTC-3, no daylight saving
 const customer: Actor = { type: "customer", id: null };
@@ -34,7 +34,7 @@ let queue: QueueRow;
 beforeAll(async () => {
   database = await startTestDatabase();
   // Big enough that 20–50 concurrent transactions really run in parallel.
-  pool = new pg.Pool({ connectionString: database.appUrl, max: 30 });
+  pool = createTestPool(database.appUrl, 30);
   db = createDb(pool);
 
   const [user] = await db.global

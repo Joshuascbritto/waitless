@@ -3,8 +3,8 @@
  * and migrated like production) and a real Redis 8, in containers.
  */
 import { RedisContainer, type StartedRedisContainer } from "@testcontainers/redis";
-import { createDb, createPool, type Db } from "@waitless/db";
-import { startTestDatabase, type TestDatabase } from "@waitless/db/testing";
+import { createDb, type Db } from "@waitless/db";
+import { createTestPool, startTestDatabase, type TestDatabase } from "@waitless/db/testing";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { Redis } from "ioredis";
 import { buildApp } from "../app.ts";
@@ -14,7 +14,7 @@ export const APP_ORIGIN = "http://localhost:3000";
 export interface Harness {
   app: FastifyInstance;
   db: Db;
-  pool: ReturnType<typeof createPool>;
+  pool: ReturnType<typeof createTestPool>;
   stop(): Promise<void>;
 }
 
@@ -26,7 +26,7 @@ export async function startHarness(): Promise<Harness> {
     new RedisContainer("redis:8.8.4-alpine").start(),
   ]);
 
-  const pool = createPool(database.appUrl);
+  const pool = createTestPool(database.appUrl);
   const redis = new Redis(redisContainer.getConnectionUrl());
   const db = createDb(pool);
   const app = await buildApp({

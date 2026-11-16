@@ -5,6 +5,7 @@
  */
 import { fileURLToPath } from "node:url";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import pg from "pg";
 import { runMigrations } from "./migrate.ts";
 
 const IMAGE = "postgres:18.7-alpine";
@@ -42,4 +43,21 @@ export async function startTestDatabase(): Promise<TestDatabase> {
       await container.stop();
     },
   };
+}
+
+/**
+ * A pool for tests. pool.end() resolves once the pool has let go of its
+ * clients, which can be before their sockets finish closing; stopping the
+ * container right after makes Postgres send 57P01 (admin shutdown) to a client
+ * that no longer has an error listener, and Vitest reports it as unhandled.
+ * Only that teardown error is swallowed; anything else is rethrown.
+ */
+export function createTestPool(connectionString: string, max = 10): pg.Pool {
+  const pool = new pg.Pool({ connectionString, max });
+  pool.on("connect", (client) => {
+    client.on("error", (error: Error & { code?: string }) => {
+      if (error.code !== "57P01") throw error;
+    });
+  });
+  return pool;
 }
