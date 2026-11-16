@@ -83,6 +83,10 @@ services:
       # Requests arrive through Caddy on the private Docker network.
       TRUST_PROXY: uniquelocal
       API_DOCS: "true"
+      # Web Push (optional): `pnpm vapid:generate`, then put the keys in .env.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -91,6 +95,13 @@ services:
 
   api-2:
     <<: *api
+
+  # Same image, other entrypoint: notifications, auto no-show, daily retention.
+  worker:
+    <<: *api
+    command: ["node", "dist/worker.js"]
+    healthcheck:
+      disable: true
 
   web:
     profiles: [full]

@@ -26,6 +26,8 @@ WORKDIR /app
 # Standalone keeps the monorepo layout: the server lives at apps/web/server.js.
 COPY --from=build --chown=node:node /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=node:node /repo/apps/web/.next/static ./apps/web/.next/static
+# Static files served as-is: icons, and the service worker at /sw.js.
+COPY --from=build --chown=node:node /repo/apps/web/public ./apps/web/public
 USER node
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
