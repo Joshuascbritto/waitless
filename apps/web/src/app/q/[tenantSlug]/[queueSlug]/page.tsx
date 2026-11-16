@@ -34,11 +34,11 @@ export default async function JoinQueuePage({ params }: { params: Params }) {
 
       <dl className="grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-neutral-100 p-4">
-          <dt className="text-sm text-neutral-500">Waiting now</dt>
+          <dt className="text-sm text-neutral-600">Waiting now</dt>
           <dd className="text-3xl font-semibold">{queue.waitingCount}</dd>
         </div>
         <div className="rounded-xl bg-neutral-100 p-4">
-          <dt className="text-sm text-neutral-500">Estimated wait</dt>
+          <dt className="text-sm text-neutral-600">Estimated wait</dt>
           <dd className="text-xl font-semibold">{etaText(queue.etaRange)}</dd>
         </div>
       </dl>
