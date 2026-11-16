@@ -15,6 +15,13 @@ export interface Harness {
   app: FastifyInstance;
   db: Db;
   pool: ReturnType<typeof createTestPool>;
+  /** A command connection to the shared Redis, for assertions (e.g. PUBSUB NUMSUB). */
+  redis: Redis;
+  /**
+   * Another API instance on the same Postgres and Redis, like a second replica:
+   * its own pool, Redis connections and subscriptions. Closed by stop().
+   */
+  startInstance(): Promise<FastifyInstance>;
   stop(): Promise<void>;
 }
 
@@ -25,23 +32,43 @@ export async function startHarness(): Promise<Harness> {
     startTestDatabase(),
     new RedisContainer("redis:8.8.4-alpine").start(),
   ]);
+  const appUrl = database.appUrl;
+  const redisUrl = redisContainer.getConnectionUrl();
 
-  const pool = createTestPool(database.appUrl);
-  const redis = new Redis(redisContainer.getConnectionUrl());
-  const db = createDb(pool);
-  const app = await buildApp({
-    logger: false,
-    readinessChecks: [],
-    docs: true,
-    services: { db, redis, appOrigin: APP_ORIGIN },
-  });
+  const instances: Array<{
+    app: FastifyInstance;
+    pool: ReturnType<typeof createTestPool>;
+    redis: Redis;
+  }> = [];
+  async function startInstance() {
+    const pool = createTestPool(appUrl);
+    const redis = new Redis(redisUrl);
+    const app = await buildApp({
+      logger: false,
+      readinessChecks: [],
+      docs: true,
+      services: { db: createDb(pool), redis, appOrigin: APP_ORIGIN },
+    });
+    instances.push({ app, pool, redis });
+    return app;
+  }
+
+  const app = await startInstance();
+  const pool = createTestPool(appUrl);
+  const redis = new Redis(redisUrl);
 
   return {
     app,
-    db,
+    db: createDb(pool),
     pool,
+    redis,
+    startInstance,
     stop: async () => {
-      await app.close();
+      for (const instance of instances) {
+        await instance.app.close();
+        await instance.pool.end();
+        instance.redis.disconnect();
+      }
       await pool.end();
       redis.disconnect();
       await Promise.all([database?.stop(), redisContainer?.stop()]);

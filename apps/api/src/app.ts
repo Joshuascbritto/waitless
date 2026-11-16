@@ -15,6 +15,7 @@ import type { Redis } from "ioredis";
 import { registerAuth } from "./plugins/auth.ts";
 import { registerErrorHandlers } from "./plugins/error-handler.ts";
 import { registerOriginCheck } from "./plugins/origin-check.ts";
+import { createRealtime } from "./realtime/index.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { healthRoutes, type ReadinessCheck } from "./routes/health.ts";
@@ -121,10 +122,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     });
     registerAuth(app, services.db);
 
+    const realtime = createRealtime(services.db, services.redis, app.log);
+    // End open streams first, or close() would wait on them forever.
+    app.addHook("preClose", async () => realtime.streams.closeAll());
+    app.addHook("onClose", async () => realtime.close());
+
     await app.register(authRoutes, { prefix: "/api/auth", db: services.db });
     await app.register(tenantRoutes, { prefix: "/api/tenants", db: services.db });
-    await app.register(publicRoutes, { prefix: "/api/public", db: services.db });
-    await app.register(adminRoutes, { prefix: "/api/admin/:tenantSlug", db: services.db });
+    await app.register(publicRoutes, { prefix: "/api/public", db: services.db, realtime });
+    await app.register(adminRoutes, {
+      prefix: "/api/admin/:tenantSlug",
+      db: services.db,
+      realtime,
+    });
   }
 
   return app;

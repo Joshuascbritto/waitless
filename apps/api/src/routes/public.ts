@@ -20,17 +20,22 @@ import {
   PublicQueueInfoSchema,
   PublicTicketViewSchema,
   type TicketStatus,
-  toPublicTicketView,
 } from "@waitless/shared";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { findQueueBySlug, findTenantBySlug } from "../queue/lookup.ts";
-import { toSnapshot } from "../queue/views.ts";
+import { statusIn, toCustomerView, toSnapshot } from "../queue/views.ts";
+import { MAX_PUBLIC_STREAMS_PER_IP, type Realtime, SseConnection } from "../realtime/index.ts";
 
 const QueueParams = z.object({ tenantSlug: z.string(), queueSlug: z.string() });
 const TicketParams = z.object({ tenantSlug: z.string(), token: z.string().min(1).max(64) });
 
-export const publicRoutes: FastifyPluginAsyncZod<{ db: Db }> = async (app, { db }) => {
+const customer = { type: "customer", id: null } as const;
+
+export const publicRoutes: FastifyPluginAsyncZod<{ db: Db; realtime: Realtime }> = async (
+  app,
+  { db, realtime },
+) => {
   app.get(
     "/q/:tenantSlug/:queueSlug",
     {
@@ -70,19 +75,28 @@ export const publicRoutes: FastifyPluginAsyncZod<{ db: Db }> = async (app, { db 
     },
     async (request, reply) => {
       const tenant = await findTenantBySlug(db, request.params.tenantSlug);
-      const ticket = await db.withTenant(tenant.id, async (tx) => {
+      const ticket = await db.withTenant(tenant.id, async (tx, { afterCommit }) => {
         const queue = await findQueueBySlug(tx, request.params.queueSlug);
         if (!queue.isOpen) {
           throw new ConflictError("This queue isn't taking new customers right now");
         }
-        return createTicket(tx, {
+        const created = await createTicket(tx, {
           queue,
           timezone: tenant.timezone,
           customerName: request.body.name,
           customerEmail: request.body.email,
           source: "qr",
-          actor: { type: "customer", id: null },
+          actor: customer,
         });
+        afterCommit(() =>
+          realtime.events.publish({
+            type: "ticket.created",
+            tenantId: tenant.id,
+            queueId: queue.id,
+            ticketId: created.id,
+          }),
+        );
+        return created;
       });
       return reply.code(201).send({ token: ticket.publicToken, displayCode: ticket.displayCode });
     },
@@ -113,12 +127,65 @@ export const publicRoutes: FastifyPluginAsyncZod<{ db: Db }> = async (app, { db 
           throw new NotFoundError("Queue not found");
         }
         const state = await loadQueueState(tx, { queueId: queue.id, timezone: tenant.timezone });
-        const view = toPublicTicketView(
-          { id: ticket.id, displayCode: ticket.displayCode, status: ticket.status as TicketStatus },
-          toSnapshot(queue, state),
-        );
-        return { tenantName: tenant.name, queueName: queue.name, queueSlug: queue.slug, ...view };
+        return toCustomerView(tenant.name, queue, state, {
+          id: ticket.id,
+          displayCode: ticket.displayCode,
+          status: ticket.status as TicketStatus,
+        });
       });
+    },
+  );
+
+  app.get(
+    "/q/:tenantSlug/t/:token/stream",
+    {
+      schema: {
+        tags: ["public"],
+        summary: "SSE: `ticket` events with the same payload as GET, on every change",
+        params: TicketParams,
+      },
+    },
+    async (request, reply) => {
+      if (realtime.streams.connectionsFrom(request.ip) >= MAX_PUBLIC_STREAMS_PER_IP) {
+        throw Object.assign(new Error("Too many open streams from this address"), {
+          statusCode: 429,
+        });
+      }
+      const tenant = await findTenantBySlug(db, request.params.tenantSlug);
+      const [ticket] = await db.withTenant(tenant.id, (tx) =>
+        tx
+          .select({ id: tickets.id, queueId: tickets.queueId, displayCode: tickets.displayCode })
+          .from(tickets)
+          .where(eq(tickets.publicToken, request.params.token)),
+      );
+      if (!ticket) {
+        throw new NotFoundError("Ticket not found");
+      }
+
+      // From here on the response is a stream; errors can only be logged.
+      const stream = new SseConnection(request, reply);
+      realtime.streams.add(stream);
+      try {
+        const stop = await realtime.hub.watch(
+          { tenantId: tenant.id, timezone: tenant.timezone, queueId: ticket.queueId },
+          {
+            ticketId: ticket.id,
+            render: ({ queue, state, finishedStatuses }) => {
+              const status = statusIn(state, finishedStatuses, ticket.id);
+              if (!status) return;
+              stream.send(
+                "ticket",
+                toCustomerView(tenant.name, queue, state, { ...ticket, status }),
+              );
+            },
+          },
+        );
+        stream.onClose(stop);
+      } catch (err) {
+        request.log.error({ err }, "could not start ticket stream");
+        stream.close();
+      }
+      return reply;
     },
   );
 
@@ -129,7 +196,7 @@ export const publicRoutes: FastifyPluginAsyncZod<{ db: Db }> = async (app, { db 
     },
     async (request, reply) => {
       const tenant = await findTenantBySlug(db, request.params.tenantSlug);
-      await db.withTenant(tenant.id, async (tx) => {
+      await db.withTenant(tenant.id, async (tx, { afterCommit }) => {
         const [ticket] = await tx
           .select({ id: tickets.id })
           .from(tickets)
@@ -137,11 +204,19 @@ export const publicRoutes: FastifyPluginAsyncZod<{ db: Db }> = async (app, { db 
         if (!ticket) {
           throw new NotFoundError("Ticket not found");
         }
-        await transitionTicket(tx, {
+        const updated = await transitionTicket(tx, {
           ticketId: ticket.id,
           action: "cancel",
-          actor: { type: "customer", id: null },
+          actor: customer,
         });
+        afterCommit(() =>
+          realtime.events.publish({
+            type: "ticket.updated",
+            tenantId: tenant.id,
+            queueId: updated.queueId,
+            ticketId: updated.id,
+          }),
+        );
       });
       return reply.code(204).send();
     },

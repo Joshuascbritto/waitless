@@ -1,6 +1,14 @@
 /** Database rows → API shapes. Dates become ISO strings; private columns are left out. */
 import type { QueueRow, QueueState, TicketRow } from "@waitless/db";
-import type { AdminTicket, Queue, QueueSnapshot, TicketStatus } from "@waitless/shared";
+import {
+  type AdminTicket,
+  type Board,
+  type PublicTicketViewResponse,
+  type Queue,
+  type QueueSnapshot,
+  type TicketStatus,
+  toPublicTicketView,
+} from "@waitless/shared";
 
 export function toQueue(row: QueueRow): Queue {
   return {
@@ -46,5 +54,38 @@ export function toSnapshot(queue: QueueRow, state: QueueState, now = new Date())
     })),
     recentServiceMinutes: state.recentServiceMinutes,
     now,
+  };
+}
+
+/** The customer's own ticket, as sent by GET and by the SSE stream (same redacted shape). */
+export function toCustomerView(
+  tenantName: string,
+  queue: QueueRow,
+  state: QueueState,
+  ticket: { id: string; displayCode: string; status: TicketStatus },
+): PublicTicketViewResponse {
+  const view = toPublicTicketView(ticket, toSnapshot(queue, state));
+  return { tenantName, queueName: queue.name, queueSlug: queue.slug, ...view };
+}
+
+/** Current status of a ticket: from the active lists, else from the finished lookup. */
+export function statusIn(
+  state: QueueState,
+  finished: ReadonlyMap<string, TicketStatus>,
+  ticketId: string,
+): TicketStatus | undefined {
+  const active = [...state.waiting, ...state.called, ...state.serving].find(
+    (t) => t.id === ticketId,
+  );
+  return (active?.status as TicketStatus | undefined) ?? finished.get(ticketId);
+}
+
+/** The staff board, as sent by GET and by the SSE stream. */
+export function toBoard(queue: QueueRow, state: QueueState): Board {
+  return {
+    queue: toQueue(queue),
+    waiting: state.waiting.map(toAdminTicket),
+    called: state.called.map(toAdminTicket),
+    serving: state.serving.map(toAdminTicket),
   };
 }
