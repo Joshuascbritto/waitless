@@ -12,10 +12,10 @@ Each phase ends with: lint + typecheck + tests green, ROADMAP and CLAUDE.md "Com
 - [x] Biome config; `pnpm lint`, `pnpm typecheck` at root
 - [ ] `docker-compose.yml`: postgres, redis, mailpit (with healthchecks)
 - [x] `.env.example` with every variable documented
-- [ ] Fastify app skeleton: pino logging, requestId, helmet, problem+json error handler, `/api/health/live` and `/api/health/ready`
+- [x] Fastify app skeleton: pino logging, requestId, helmet, problem+json error handler, `/api/health/live` and `/api/health/ready`
 - [x] Next.js app skeleton with Tailwind; dev rewrite `/api/*` → API
-- [ ] Vitest set up in every package; one trivial passing test each
-- [ ] GitHub Actions `ci.yml`: install, lint, typecheck, test
+- [x] Vitest set up in every package; one trivial passing test each
+- [x] GitHub Actions `ci.yml`: install, lint, typecheck, test
 - [x] README stub (title, one-liner, "work in progress")
 
 ## Phase 1 — Data model, tenancy and auth
